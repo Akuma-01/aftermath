@@ -1,0 +1,40 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+.vite/
+.cache/
+*.tsbuildinfo
+test-results/
+playwright-report/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local databases, benchmark outputs, and provider traces
+.data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+dump.rdb
+appendonly.aof
+appendonlydir/
+
+# Runtime and editor artifacts
+*.log
+*.pid
+*.sock
+.DS_Store
+.idea/
+.vscode/
+
+# Local reconstruction instructions and planning
+/AGENTS.md
+/AFTERMATH_CODEX_PLAN.md

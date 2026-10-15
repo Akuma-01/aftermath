@@ -1,0 +1,13 @@
+node_modules
+dist
+.data
+.cache
+.vite
+coverage
+test-results
+playwright-report
+package-lock.json
+
+# Preserve existing project instructions and planning records.
+AGENTS.md
+AFTERMATH_CODEX_PLAN.md
