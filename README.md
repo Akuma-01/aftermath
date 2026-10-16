@@ -4,7 +4,7 @@ Aftermath is an incident investigation platform built around FalkorDB graph reas
 
 ## Current scope
 
-Milestones 1–6 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the web entry remains a scaffold. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Agent execution and investigation UI features remain deferred. Registered diagnostic commands add deterministic synthetic observations. The React entry mounts an empty root, so the development page is intentionally blank.
+Milestones 1–7 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the React workspace provides evidence and service maps, correction workflows, report history, and activity inspection. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Agent execution and the benchmark dashboard remain deferred. Registered diagnostic commands add deterministic synthetic observations.
 
 ## Core model
 
@@ -46,7 +46,7 @@ Coverage includes unsupported or contested findings connected to the recipe's se
 
 The deterministic commerce fixture includes **24 services, 34 dependencies, 17 observations and 18 claims**. Database-evidence withdrawal invalidates dependent explanations while retaining an independently supported order finding. The three recipes contain metadata only; their hidden observations are absent from the initial graph. These fixtures use fixed test identities and synthetic timestamps, used for reproducible tests.
 
-`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. UI and agents remain deferred. Generation caching and cleanup limitations described above still apply.
+`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. Agents remain deferred. Generation caching and cleanup limitations described above still apply.
 
 ## Durable incident ledger
 
@@ -86,6 +86,16 @@ POST commands at `evidence/:evidenceId/withdrawals`, `repairs`, `held-reports`, 
 
 The default server binds to loopback. Browser commands are restricted to configured local origins; this is not authentication for public deployment. No provider credentials are needed. `npm run test:api` checks HTTP behavior, generation races, correction/repair, MCP protocol handling, server startup and durable restart recovery with real local engines. The PostgreSQL suite also runs API integration checks.
 
+## Investigation workspace
+
+The React/TypeScript interface uses React Flow for interactive evidence and service graphs. Select an incident, inspect source content, scope and provenance, or select a finding to query its current graph support. Support groups show AND premises and OR alternatives; opposition and rejected groups remain inspectable. Graph failures stay visible while durable evidence and historical reports remain readable.
+
+Withdrawals require a reason and use sequence-checked, idempotent commands. The workspace polls repair progress, displays preserved and revised findings, and retains every report version with a revision diff. Activity shows worker attempts, publication results, and held-report controls. Memory opens a fresh correction-retrieval session. Incident selection survives reload; obsolete poll responses cannot replace a newly selected investigation.
+
+The agent activity panel renders the audit summaries available from the backend. Its run control is disabled until the agent runtime is implemented; it does not call unavailable endpoints or simulate model activity. No benchmark dashboard is included.
+
+`npm run test:web` runs Chromium end-to-end checks against an isolated API, PGlite, FalkorDB, and Redis, using temporary storage and ports 4001/5174. Install Chromium with `npx playwright install chromium` if unavailable; Linux may also require browser system libraries. Tests cover desktop/mobile recovery, alternative support, contested findings, commerce diagnostics, held-work rejection, historical reports, incident switching, and failure states. Browser artifacts are ignored by Git. API-client unit tests run with `npm test -- tests/web-api.test.ts`. No paid APIs are used.
+
 ## Local setup
 
 Use Node.js 20.19 or newer and npm 10 or newer. npm 10.8.2 is recorded as the package manager. The dependencies include a pinned project-local Node 22 runtime used by npm scripts after installation.
@@ -95,7 +105,7 @@ npm ci
 npm run dev
 ```
 
-Vite serves the empty web entry at http://127.0.0.1:5173. The API listens at http://127.0.0.1:4000; Vite proxies /api to it. First startup seeds a commerce incident.
+Vite serves the investigation workspace at http://127.0.0.1:5173. The API listens at http://127.0.0.1:4000; Vite proxies /api to it. First startup seeds a commerce incident.
 
 To run the API or start the configured dedicated worker:
 
@@ -121,7 +131,7 @@ npm run format:check
 
 Run `npm run test:core` for contract, domain, and deterministic-fixture tests. These cover support alternatives, opposition, provenance, scope, malformed dependency graphs, and report revisions. The workspace smoke suite also checks TypeScript source exports. Core tests do not start databases, queues, or models; the full suite starts PGlite, embedded FalkorDB and private queue Redis. The separate PostgreSQL run verifies independent-client locking. The build typechecks all source and writes the web bundle to `dist/web`; server entries run as TypeScript through tsx, using the workspace source exports.
 
-Use `npm run test:watch` for Vitest watch mode, `npm run format` to format project files, and `npm run preview` to inspect the built empty web entry. Existing instructions and planning records are excluded from automatic formatting.
+Use `npm run test:watch` for Vitest watch mode, `npm run format` to format project files, and `npm run preview` to inspect the built workspace while the API runs on port 4000. After `npm run build`, `npm start` also serves the workspace and API together on port 4000. Existing instructions and planning records are excluded from automatic formatting.
 
 ## Workspace layout
 

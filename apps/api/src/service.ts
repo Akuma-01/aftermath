@@ -1,6 +1,6 @@
 import { makeReport } from '@aftermath/domain';
 import { randomUUID } from 'node:crypto';
-import type { Diagnostic, GraphView } from '@aftermath/contracts';
+import type { Diagnostic, GraphView, Snapshot } from '@aftermath/contracts';
 import { RepairProcessor } from '@aftermath/repair';
 import {
   createIncident,
@@ -30,7 +30,7 @@ export class InvestigationService {
   private command(key: string, action: string, data: unknown) {
     return { key, fingerprint: JSON.stringify([action, data]) };
   }
-  async snapshot(id: string) {
+  async snapshot(id: string): Promise<Snapshot> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const incident = await this.ledger.get(id);
       let graph: GraphView | null = null;

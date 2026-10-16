@@ -266,3 +266,20 @@ export interface RepairAttempt {
   inputSeq: number;
   reportVersion: number | null;
 }
+
+/** HTTP snapshot shared with the browser; agent audit detail is deferred. */
+export interface Snapshot {
+  incident: Incident;
+  diagnostics: Diagnostic[];
+  graph: GraphView | null;
+  graphError: string | null;
+  mode: 'deterministic' | 'live';
+  agentAvailability: { configured: boolean; provider: string | null; model: string | null };
+  storage: 'PGlite + FalkorDB' | 'PostgreSQL + FalkorDB';
+  work: {
+    tasks: RepairTask[];
+    attempts: RepairAttempt[];
+    modelCalls: Array<{ id: string; status: string }>;
+    toolCalls: Array<{ id: string; status: string }>;
+  };
+}

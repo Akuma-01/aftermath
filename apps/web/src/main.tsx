@@ -1,7 +1,13 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import '@fontsource-variable/dm-sans';
+import '@fontsource-variable/manrope';
+import '@xyflow/react/dist/style.css';
+import './styles.css';
 
-const root = document.getElementById('root');
-if (!root) throw new Error('The web entry requires a root element.');
-
-createRoot(root).render(<StrictMode>{null}</StrictMode>);
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
