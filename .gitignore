@@ -35,6 +35,6 @@ appendonlydir/
 .idea/
 .vscode/
 
-# Local reconstruction instructions and planning
+# Local construction instructions
 /AGENTS.md
 /AFTERMATH_CODEX_PLAN.md

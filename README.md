@@ -4,7 +4,7 @@ Aftermath is an incident investigation platform built around FalkorDB graph reas
 
 ## Current scope
 
-Milestones 1–3 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. Application entry points remain scaffolds. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. HTTP endpoints, SQL persistence, workers, diagnostic execution, and investigation UI features remain deferred. The React entry mounts an empty root, so the development page is intentionally blank.
+Milestones 1–4 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. Application entry points remain scaffolds. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. HTTP endpoints, workers, diagnostic execution, and investigation UI features remain deferred. The React entry mounts an empty root, so the development page is intentionally blank.
 
 ## Core model
 
@@ -46,7 +46,21 @@ Coverage includes unsupported or contested findings connected to the recipe's se
 
 The deterministic commerce fixture includes **24 services, 34 dependencies, 17 observations and 18 claims**. Database-evidence withdrawal invalidates dependent explanations while retaining an independently supported order finding. The three recipes contain metadata only; their hidden observations are absent from the initial graph. These fixtures use fixed test identities and synthetic timestamps, used for reproducible tests.
 
-`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. API, UI, agents, SQL publication, and diagnostic execution are outside this milestone. Generation caching and cleanup limitations described above still apply.
+`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. API, UI, agents and diagnostic execution remain deferred. Generation caching and cleanup limitations described above still apply.
+
+## Durable incident ledger
+
+`Ledger.open(path)` uses local PGlite; `Ledger.open(undefined, databaseUrl)` uses PostgreSQL. Startup applies four versioned SQL migrations in one transaction, using a PostgreSQL advisory lock to serialize concurrent initialization. Initialization failures reject and close the database connection.
+
+SQL stores the authoritative incident snapshot as JSONB, plus ordered domain events and idempotency responses. Creation and each accepted command commit their state and event together. This is a snapshot-plus-event ledger: events describe changes, rather than serving as a standalone replay format. Evidence, claims, corrections and immutable report revisions are retained within the incident snapshot. `get()`, `list()` and `events()` read durable SQL records.
+
+`mutate()` locks the incident row, returns a prior response for an identical command key/fingerprint, and rejects conflicting keys or stale expected sequences. Callers must fingerprint all command parameters. It prevents rewriting existing evidence payloads, claim premises, corrections, reports or events; new evidence versions must advance the source version. Reasoning-input changes advance the evidence epoch and mark evaluations and the report for review. `withdraw()` records the exact withdrawn version and reason; `appendEvidence()` retains prior versions. Both atomically schedule a pending repair task and outbox record.
+
+`publish()` accepts a report prepared outside the transaction. Its gate checks the expected incident sequence, projected sequence, evidence epoch, input report version and canonical artifact hashes (including topology and recipe metadata). It appends the new report with its graph-generation manifest and preserves old reports. The storage layer does not evaluate graph support or verify a graph generation remotely; its trusted caller supplies actual FalkorDB results. Any intervening command conservatively invalidates the proposal at this stage. Worker ownership, leases and attempt-based publication will be added with repair processing.
+
+Repair-task, attempt, outbox, model-call and tool-call tables provide durable relationships and audit storage. This milestone implements task scheduling and work-summary reads; it does not execute jobs, dispatch queues, reserve model budgets or invoke providers. Audit-table tests insert synthetic records through SQL and verify foreign-key enforcement.
+
+Run `npm run test:storage` for PGlite persistence and SQL/FalkorDB integration tests. Run `npm run test:postgres` for the same checks plus independent PostgreSQL-client concurrency. The PostgreSQL runner starts and removes a private temporary cluster using `PG_BIN` (default `/usr/lib/postgresql/16/bin`), or uses an explicitly supplied `STORAGE_TEST_DATABASE_URL`. Use a dedicated test database: the suite creates test incidents and audit records. Both integration modes require permission to create database sockets. No paid APIs are used.
 
 ## Local setup
 
@@ -81,7 +95,7 @@ npm run build
 npm run format:check
 ```
 
-Run `npm run test:core` for contract, domain, and deterministic-fixture tests. These cover support alternatives, opposition, provenance, scope, malformed dependency graphs, and report revisions. The workspace smoke suite also checks TypeScript source exports. Core tests do not start databases, queues, or models; the full suite also starts embedded FalkorDB. The build typechecks all source and writes the web bundle to `dist/web`; server entries run as TypeScript through tsx, using the workspace source exports.
+Run `npm run test:core` for contract, domain, and deterministic-fixture tests. These cover support alternatives, opposition, provenance, scope, malformed dependency graphs, and report revisions. The workspace smoke suite also checks TypeScript source exports. Core tests do not start databases, queues, or models; the full suite starts PGlite and embedded FalkorDB. The separate PostgreSQL run verifies independent-client locking. The build typechecks all source and writes the web bundle to `dist/web`; server entries run as TypeScript through tsx, using the workspace source exports.
 
 Use `npm run test:watch` for Vitest watch mode, `npm run format` to format project files, and `npm run preview` to inspect the built empty web entry. Existing instructions and planning records are excluded from automatic formatting.
 

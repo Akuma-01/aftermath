@@ -133,10 +133,31 @@ export interface Diagnostic {
   paths: Array<{ claimId: string; serviceIds: string[] }>;
 }
 
+export const domainEventSchema = z.strictObject({
+  id: nonEmpty,
+  seq: revision,
+  type: nonEmpty,
+  message: nonEmpty,
+  occurredAt: timestamp,
+});
+export const contextManifestSchema = z.strictObject({
+  evidenceEpoch: revision,
+  reportVersion: revision,
+  graphGeneration: nonEmpty,
+  projectedSeq: revision,
+  readArtifacts: z.array(
+    z.strictObject({ id: nonEmpty, hash: z.string().regex(/^[a-f0-9]{64}$/) }),
+  ),
+});
+export type DomainEvent = z.infer<typeof domainEventSchema>;
+export type ContextManifest = z.infer<typeof contextManifestSchema>;
+
 /** Incident data through service analysis. Worker, session and agent contracts arrive later.
  * Schemas validate data shape; validateGraph enforces cross-artifact support invariants.
  */
 export const incidentSchema = z.strictObject({
+  events: z.array(domainEventSchema).optional(),
+  reportManifest: contextManifestSchema.optional(),
   scenario: z.enum(['checkout', 'commerce']).optional(),
   topology: serviceTopologySchema.optional(),
   diagnosticRecipes: z.array(diagnosticRecipeSchema).optional(),

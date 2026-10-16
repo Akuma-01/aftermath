@@ -23,7 +23,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:core": "vitest run tests/contracts.test.ts tests/domain.test.ts tests/fixtures.test.ts",
-    "test:graph": "vitest run tests/graph.test.ts tests/diagnostics.test.ts"
+    "test:graph": "vitest run tests/graph.test.ts tests/diagnostics.test.ts",
+    "test:storage": "vitest run tests/storage.test.ts tests/integration.test.ts",
+    "test:postgres": "bash scripts/test-postgres.sh"
   },
   "engines": {
     "node": ">=20.19.0",
