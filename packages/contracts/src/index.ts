@@ -165,7 +165,18 @@ export type ContextManifest = z.infer<typeof contextManifestSchema>;
 /** Incident data through service analysis. Worker, session and agent contracts arrive later.
  * Schemas validate data shape; validateGraph enforces cross-artifact support invariants.
  */
+export const sessionSchema = z.strictObject({
+  id: nonEmpty,
+  createdAt: timestamp,
+  correctionIds: z.array(nonEmpty),
+  rejectedSourceIds: z.array(nonEmpty),
+  graphGeneration: nonEmpty,
+  message: nonEmpty,
+});
+export type Session = z.infer<typeof sessionSchema>;
+
 export const incidentSchema = z.strictObject({
+  sessions: z.array(sessionSchema).optional(),
   events: z.array(domainEventSchema).optional(),
   lastImpact: impactSchema.nullable().optional(),
   repairError: z.string().nullable().optional(),

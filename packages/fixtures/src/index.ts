@@ -478,3 +478,105 @@ export function createCommerceIncident(): Incident {
   ];
   return incident;
 }
+
+/** Local command prerequisite check; displayed coverage/ranking still comes from FalkorDB. */
+export function diagnosticAvailable(incident: Incident, recipeId: string): boolean {
+  const recipe = (incident.diagnosticRecipes ?? diagnosticRecipes).find((r) => r.id === recipeId);
+  if (!recipe || (incident.completedDiagnosticIds ?? []).includes(recipeId)) return false;
+  const scope = incident.claims.find((c) => c.id === recipe.informs[0])?.scope;
+  return recipe.prerequisiteIds.every((id) =>
+    incident.evidence.some(
+      (e) =>
+        e.id === id &&
+        e.status === 'active' &&
+        e.scope.environment === scope?.environment &&
+        e.scope.timeWindow === scope.timeWindow,
+    ),
+  );
+}
+/** Tool-only fixture outcomes. These are never sent as initial evidence to the browser. */
+export function diagnosticOutcome(id: string): { evidence: Evidence; claim?: Claim } {
+  if (id === 'production-pool')
+    return {
+      evidence: evidence(
+        'E7',
+        'Production pool usage is normal',
+        'READ-ONLY FIXTURE QUERY\nenvironment: production\nmax_pool_utilization: 0.34\nconnection_acquisition_failures: 0\nwindow: 09:40–10:10 UTC',
+        'diagnostic',
+        'Production pool check',
+        'database',
+        '2026-09-25T10:06:00.000Z',
+      ),
+      claim: claim(
+        'C6',
+        'Production pool metrics are normal',
+        'The production pool diagnostic reports 34% peak utilization and no acquisition failures in this window.',
+        'observation',
+        [['E7']],
+      ),
+    };
+  if (id === 'payment-timeouts')
+    return {
+      evidence: evidence(
+        'E8',
+        'Upstream payment timeouts',
+        'READ-ONLY FIXTURE QUERY\nfailed_checkout_spans: 120\nspans_with_upstream_payment_timeout: 108\nwindow: 09:40–10:10 UTC\nAssociation supports further investigation; not sole-cause proof.',
+        'diagnostic',
+        'Payment trace check',
+        'payment',
+        '2026-09-25T10:07:00.000Z',
+      ),
+      claim: claim(
+        'C7',
+        'Payment timeouts appear in failed requests',
+        '108 of 120 sampled failed checkout spans contain an upstream payment timeout. This supports a payment-path contribution, without proving a sole cause.',
+        'inference',
+        [['E8', 'E6']],
+      ),
+    };
+  if (id === 'source-environment')
+    return {
+      evidence: {
+        ...evidence(
+          'E9',
+          'Original log belongs to staging',
+          'READ-ONLY METADATA LOOKUP\nsource: db-pool-export-0925.log\noriginal_environment: staging\nimported_environment: production\nThe imported version must be withdrawn explicitly.',
+          'diagnostic',
+          'Source metadata check',
+          'database',
+          '2026-09-25T10:05:00.000Z',
+        ),
+      },
+    };
+  throw new Error('Unknown diagnostic');
+}
+
+/** Registered synthetic observations only; no production operation is executed. */
+export function applyDiagnostic(incident: Incident, recipeId: string) {
+  if (!diagnosticAvailable(incident, recipeId))
+    throw new Error('This diagnostic is unavailable or already completed');
+  const outcome = diagnosticOutcome(recipeId);
+  incident.evidence.push(outcome.evidence);
+  if (outcome.claim) {
+    outcome.claim.serviceIds = [outcome.evidence.service];
+    incident.claims.push(outcome.claim);
+  }
+  if (recipeId === 'production-pool')
+    incident.claims
+      .find((c) => c.id === 'C2-v1')!
+      .oppositionGroups.push({
+        id: 'C2-opposes-E7',
+        memberIds: ['E7-v1'],
+        ruleId: 'fixture-normal-pool',
+      });
+  (incident.completedDiagnosticIds ??= []).push(recipeId);
+  incident.evidenceEpoch++;
+  incident.reportStatus = 'needs_review';
+  incident.evaluations = incident.claims.map((c) => ({
+    claimId: c.id,
+    status: 'needs_review',
+    validGroupIds: [],
+    invalidGroups: [],
+    originGroupIds: [],
+  }));
+}

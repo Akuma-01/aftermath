@@ -4,7 +4,7 @@ Aftermath is an incident investigation platform built around FalkorDB graph reas
 
 ## Current scope
 
-Milestones 1–5 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. API and web entry points remain scaffolds. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. HTTP endpoints, agent execution, diagnostic execution, and investigation UI features remain deferred. The React entry mounts an empty root, so the development page is intentionally blank.
+Milestones 1–6 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the web entry remains a scaffold. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Agent execution and investigation UI features remain deferred. Registered diagnostic commands add deterministic synthetic observations. The React entry mounts an empty root, so the development page is intentionally blank.
 
 ## Core model
 
@@ -14,7 +14,7 @@ Milestones 1–5 provide validated core incident, evidence, claim, correction, a
 
 `makeReport` produces a new revision with initial, preserved, or revised statements and a validation epoch. It validates evaluation coverage, keeps earlier reports unchanged, and distinguishes unsupported, contested, and pending findings. Its optional fifth `createdAt` argument allows reproducible report timestamps.
 
-`createDomainFixture` in `@aftermath/fixtures` returns fresh deterministic test objects for the small checkout support graph. Its fixed ID and synthetic observation timestamps are test data, used for reproducible tests. `createIncident()` adds the small operational topology and recipe metadata; `createCommerceIncident()` supplies the complete commerce workload. Diagnostic execution remains deferred.
+`createDomainFixture` in `@aftermath/fixtures` returns fresh deterministic test objects for the small checkout support graph. Its fixed ID and synthetic observation timestamps are test data, used for reproducible tests. `createIncident()` adds the small operational topology and recipe metadata; `createCommerceIncident()` supplies the complete commerce workload. Registered diagnostic execution adds hidden synthetic observations only after an accepted command.
 
 ## FalkorDB graph reasoning
 
@@ -46,7 +46,7 @@ Coverage includes unsupported or contested findings connected to the recipe's se
 
 The deterministic commerce fixture includes **24 services, 34 dependencies, 17 observations and 18 claims**. Database-evidence withdrawal invalidates dependent explanations while retaining an independently supported order finding. The three recipes contain metadata only; their hidden observations are absent from the initial graph. These fixtures use fixed test identities and synthetic timestamps, used for reproducible tests.
 
-`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. API, UI, agents and diagnostic execution remain deferred. Generation caching and cleanup limitations described above still apply.
+`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. UI and agents remain deferred. Generation caching and cleanup limitations described above still apply.
 
 ## Durable incident ledger
 
@@ -64,7 +64,7 @@ Run `npm run test:storage` for PGlite persistence and SQL/FalkorDB integration t
 
 ## Correction and background repair
 
-A trusted caller submits an already-authorized correction with `ledger.withdraw(incidentId, evidenceId, reason, expectedSeq, idempotencyKey)`. The ledger atomically retains the withdrawn version, records the correction, advances sequence/epoch, marks the report for review, and schedules one repair task with an outbox delivery. Authentication and HTTP command authorization will be implemented at the API boundary; the queue cannot submit corrections.
+A trusted caller submits an already-authorized correction with `ledger.withdraw(incidentId, evidenceId, reason, expectedSeq, idempotencyKey)`. The ledger atomically retains the withdrawn version, records the correction, advances sequence/epoch, marks the report for review, and schedules one repair task with an outbox delivery. The HTTP boundary validates commands and rejects foreign browser origins. It is a trusted local workspace, without multi-user authentication; the queue cannot submit corrections.
 
 `RepairProcessor` reads the complete ready FalkorDB generation and follows `DERIVED_FROM` paths from corrected evidence. It evaluates all support groups, identifies affected findings and surviving alternatives, and formats a new report while preserving unchanged statement text. It never substitutes the TypeScript evaluator after a graph failure. Report publication checks input sequence, evidence epoch, prior report version, artifact hashes, graph-generation consistency, active attempt identity and lease expiry in a SQL transaction. Duplicate completion is idempotent. Old reports and correction records remain intact.
 
@@ -73,6 +73,18 @@ A trusted caller submits an already-authorized correction with `ledger.withdraw(
 Queue Redis is separate from FalkorDB. `queueConnection()` starts a private temporary Redis with persistence disabled and `noeviction`; SQL remains the recovery source. A Redis URL supports credentials, database selection and TLS. Embedded PGlite is owned by a single process, which can run an in-process `RepairRuntime`; a separate worker requires shared PostgreSQL, FalkorDB and Redis.
 
 Run `npm run test:repair` for deterministic job, Redis recovery and worker tests. `npm run test:postgres` also exercises competing PostgreSQL clients and an actual separate worker process. The tests invoke no AI provider or production diagnostic.
+
+## Backend and graph inspection
+
+The Express API separates routing and validation (`app.ts`), incident orchestration (`service.ts`), read-only MCP transport (`mcp.ts`), and resource lifecycle (`runtime.ts`). SQL remains authoritative; graph reads retry when an incident sequence changes. A failed graph read returns an explicit degraded snapshot or a service error, never a successful substitute evaluation.
+
+Routes under `/api/incidents` list and create incidents with `scenario: "checkout"` or `"commerce"`. `/api/incidents/:id` returns the investigation snapshot. Its read endpoints include `evidence`, `evidence/:evidenceId`, `claims`, `claims/:claimId`, `support`, `graph`, `topology`, `service-impact/:serviceId`, `diagnostics`, `reports`, `repairs`, and `events?after=0`.
+
+POST commands at `evidence/:evidenceId/withdrawals`, `repairs`, `held-reports`, `repairs/:taskId/resume`, `diagnostics/:recipeId`, and `sessions` require `expectedEventSeq` and an `idempotencyKey` of 8–200 characters. Withdrawal also requires a reason of 5–1000 characters. Stale commands return 409; invalid requests return 400; unavailable services return 503. Diagnostic recipes are synthetic fixture operations, not production probes. Sessions capture correction memory without invoking an AI provider.
+
+`POST /api/mcp` supports stateless JSON Streamable HTTP with protocol version `2025-06-18`. Clients accept both `application/json` and `text/event-stream`; responses are JSON, notifications return 202, and GET/DELETE return 405. The only tools are `list_incidents`, `inspect_support`, `rank_diagnostics`, and `service_blast_radius`. Arguments are strictly validated, output is capped at 256 KiB, and no arbitrary Cypher or mutation tool is exposed. Tool failures return `isError: true`.
+
+The default server binds to loopback. Browser commands are restricted to configured local origins; this is not authentication for public deployment. No provider credentials are needed. `npm run test:api` checks HTTP behavior, generation races, correction/repair, MCP protocol handling, server startup and durable restart recovery with real local engines. The PostgreSQL suite also runs API integration checks.
 
 ## Local setup
 
@@ -83,20 +95,20 @@ npm ci
 npm run dev
 ```
 
-Vite serves the empty web entry at http://127.0.0.1:5173. The API watcher prints scaffold status; it does not listen on port 4000 yet. The Vite proxy reserves /api for the later API milestone.
+Vite serves the empty web entry at http://127.0.0.1:5173. The API listens at http://127.0.0.1:4000; Vite proxies /api to it. First startup seeds a commerce incident.
 
-To run the API scaffold or start the configured dedicated worker:
+To run the API or start the configured dedicated worker:
 
 ```bash
 npm start
 npm run worker
 ```
 
-The API scaffold prints its status and exits. The worker requires `DATABASE_URL`, `FALKORDB_URL` and `QUEUE_REDIS_URL`; it stays running and closes its resources on SIGTERM or SIGINT. Use `npm run dev:api`, `npm run dev:web`, or `npm run dev:worker` for individual development processes.
+The API runs an in-process repair runtime with durable local PGlite and private FalkorDB and Redis by default. The worker requires `DATABASE_URL`, `FALKORDB_URL` and `QUEUE_REDIS_URL`; it stays running and closes its resources on SIGTERM or SIGINT. Use `npm run dev:api`, `npm run dev:web`, or `npm run dev:worker` for individual development processes.
 
 No external database services, Docker, or provider credentials are required for local tests. Graph tests start the embedded FalkorDB engine and require permission to create local sockets. Installation requires registry access and may fetch native runtime/engine binaries. The Linux x64 engine has been tested; other platforms remain unverified.
 
-Copy `.env.example` to a local `.env` to configure the worker. The worker loads it through dotenv; the API scaffold does not yet use these settings. Never commit local `.env` files or credentials.
+Copy `.env.example` to a local `.env` to configure the API or worker. Both load it through dotenv. Never commit local `.env` files or credentials.
 
 ## Verification
 

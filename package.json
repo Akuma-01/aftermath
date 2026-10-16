@@ -26,7 +26,8 @@
     "test:graph": "vitest run tests/graph.test.ts tests/diagnostics.test.ts",
     "test:storage": "vitest run tests/storage.test.ts tests/integration.test.ts",
     "test:postgres": "bash scripts/test-postgres.sh",
-    "test:repair": "vitest run tests/jobs.test.ts tests/queue.test.ts tests/worker.test.ts"
+    "test:repair": "vitest run tests/jobs.test.ts tests/queue.test.ts tests/worker.test.ts",
+    "test:api": "vitest run tests/api.test.ts tests/mcp.test.ts tests/api-startup.test.ts"
   },
   "engines": {
     "node": ">=20.19.0",
