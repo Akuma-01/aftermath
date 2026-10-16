@@ -315,8 +315,28 @@ it('persists repair outbox, attempts and agent audit rows with relational constr
   );
   const work = await ledger.jobs.work(initial.id);
   expect(work.attempts).toMatchObject([{ id: attempt, status: 'running' }]);
-  expect(work.modelCalls).toEqual([{ id: call, status: 'running' }]);
-  expect(work.toolCalls).toEqual([{ id: tool, status: 'succeeded' }]);
+  expect(work.modelCalls).toMatchObject([
+    {
+      id: call,
+      status: 'running',
+      attemptId: attempt,
+      role: 'investigator',
+      provider: 'test',
+      model: 'test',
+      inputTokens: null,
+      credentialSlot: null,
+    },
+  ]);
+  expect(work.toolCalls).toMatchObject([
+    {
+      id: tool,
+      status: 'succeeded',
+      attemptId: attempt,
+      modelCallId: call,
+      name: 'readEvidence',
+      role: 'investigator',
+    },
+  ]);
   const current = await ledger.get(initial.id);
   await expect(
     ledger.mutate(

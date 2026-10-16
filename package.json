@@ -28,7 +28,9 @@
     "test:postgres": "bash scripts/test-postgres.sh",
     "test:repair": "vitest run tests/jobs.test.ts tests/queue.test.ts tests/worker.test.ts",
     "test:api": "vitest run tests/api.test.ts tests/mcp.test.ts tests/api-startup.test.ts",
-    "test:web": "playwright test"
+    "test:web": "playwright test",
+    "test:agents": "vitest run tests/agents.test.ts tests/provider.test.ts tests/agent-graph-tools.test.ts tests/agent-api.test.ts",
+    "test:web:agents": "playwright test --config playwright.agents.config.ts"
   },
   "engines": {
     "node": ">=20.19.0",

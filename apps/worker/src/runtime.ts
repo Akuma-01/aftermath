@@ -1,3 +1,4 @@
+import { configuredAgents } from '@aftermath/agents';
 import { Ledger } from '@aftermath/storage';
 import { EvidenceGraph } from '@aftermath/graph';
 import { RepairProcessor } from '@aftermath/repair';
@@ -34,7 +35,7 @@ export async function startWorker(env: NodeJS.ProcessEnv = process.env) {
     queue = await queueConnection(env.QUEUE_REDIS_URL);
     runtime = new RepairRuntime(
       ledger,
-      new RepairProcessor(ledger, graph),
+      new RepairProcessor(ledger, graph, configuredAgents(env)),
       queue.connection,
       env.QUEUE_NAME,
     );

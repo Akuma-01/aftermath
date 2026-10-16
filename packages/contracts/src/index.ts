@@ -72,6 +72,45 @@ export const correctionSchema = z.strictObject({
   evidenceEpoch: revision,
 });
 
+export const agentConfigSchema = z.strictObject({
+  provider: nonEmpty,
+  model: nonEmpty,
+  promptVersion: nonEmpty,
+  maxCalls: z.number().int().min(4).max(20),
+  maxOutputTokens: z.number().int().min(256).max(8192),
+  maxContextBytes: z.number().int().min(8000).max(128000),
+  timeoutMs: z.number().int().min(1000).max(120000),
+});
+export type AgentConfig = z.infer<typeof agentConfigSchema>;
+export type AgentRole = 'investigator' | 'reporter';
+export const agentFindingSchema = z.strictObject({
+  claimId: nonEmpty,
+  summary: nonEmpty,
+  supportGroupIds: z.array(nonEmpty),
+  citationIds: z.array(nonEmpty),
+  uncertainty: z.string().nullable(),
+});
+export type AgentFinding = z.infer<typeof agentFindingSchema>;
+export const diagnosticDecisionSchema = z.strictObject({
+  status: z.enum(['executed', 'deferred', 'not_needed']),
+  source: z.enum(['agent', 'gateway']),
+  code: z.enum([
+    'completed',
+    'agent_deferred',
+    'no_relevant_check',
+    'read_only_attempt',
+    'call_budget',
+  ]),
+  recipeId: nonEmpty.nullable(),
+  consideredRecipeIds: z.array(nonEmpty),
+  reason: nonEmpty,
+  evidenceEpoch: revision,
+});
+export type DiagnosticDecision = z.infer<typeof diagnosticDecisionSchema>;
+const artifactHashes = z.array(
+  z.strictObject({ id: nonEmpty, hash: z.string().regex(/^[a-f0-9]{64}$/) }),
+);
+
 export const statementSchema = z.strictObject({
   id: nonEmpty,
   claimId: nonEmpty,
@@ -80,6 +119,9 @@ export const statementSchema = z.strictObject({
   status: supportStatusSchema,
   disposition: z.enum(['initial', 'preserved', 'revised']),
   validatedEpoch: revision,
+  citationIds: z.array(nonEmpty).optional(),
+  uncertainty: z.string().nullable().optional(),
+  author: z.enum(['fixture', 'reporter', 'gateway']).optional(),
 });
 
 export const reportSchema = z.strictObject({
@@ -87,6 +129,16 @@ export const reportSchema = z.strictObject({
   createdAt: timestamp,
   evidenceEpoch: revision,
   statements: z.array(statementSchema),
+  agent: z
+    .strictObject({
+      provider: nonEmpty,
+      model: nonEmpty,
+      attemptId: nonEmpty,
+      findings: z.array(agentFindingSchema),
+      inputArtifacts: artifactHashes,
+      diagnosticDecision: diagnosticDecisionSchema.optional(),
+    })
+    .optional(),
 });
 
 export const serviceTopologySchema = z.strictObject({
@@ -151,6 +203,10 @@ export const domainEventSchema = z.strictObject({
   occurredAt: timestamp,
 });
 export const contextManifestSchema = z.strictObject({
+  sessionId: nonEmpty.optional(),
+  promptVersion: nonEmpty.optional(),
+  modelCallIds: z.array(nonEmpty).optional(),
+  toolCallIds: z.array(nonEmpty).optional(),
   evidenceEpoch: revision,
   reportVersion: revision,
   graphGeneration: nonEmpty,
@@ -176,6 +232,7 @@ export const sessionSchema = z.strictObject({
 export type Session = z.infer<typeof sessionSchema>;
 
 export const incidentSchema = z.strictObject({
+  agentConfig: agentConfigSchema.optional(),
   sessions: z.array(sessionSchema).optional(),
   events: z.array(domainEventSchema).optional(),
   lastImpact: impactSchema.nullable().optional(),
@@ -267,7 +324,7 @@ export interface RepairAttempt {
   reportVersion: number | null;
 }
 
-/** HTTP snapshot shared with the browser; agent audit detail is deferred. */
+/** HTTP snapshot shared with the browser. Credentials never enter this contract. */
 export interface Snapshot {
   incident: Incident;
   diagnostics: Diagnostic[];
@@ -279,7 +336,43 @@ export interface Snapshot {
   work: {
     tasks: RepairTask[];
     attempts: RepairAttempt[];
-    modelCalls: Array<{ id: string; status: string }>;
-    toolCalls: Array<{ id: string; status: string }>;
+    modelCalls: ModelCallSummary[];
+    toolCalls: ToolCallSummary[];
   };
+}
+
+export interface ModelCallSummary {
+  id: string;
+  attemptId: string;
+  role: AgentRole;
+  provider: string;
+  model: string;
+  status: 'running' | 'succeeded' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  latencyMs: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  error: string | null;
+  credentialSlot?: 'primary' | 'backup' | null;
+  failoverFromCallId?: string | null;
+}
+export interface ToolCallSummary {
+  id: string;
+  attemptId: string;
+  modelCallId: string;
+  role: AgentRole;
+  name: string;
+  status: 'succeeded' | 'rejected';
+  createdAt: string;
+}
+export interface ModelCallDetail extends ModelCallSummary {
+  request: unknown;
+  response: unknown;
+  manifest: ContextManifest;
+}
+export interface ToolCallDetail extends ToolCallSummary {
+  arguments: unknown;
+  result: unknown;
+  manifest: ContextManifest;
 }

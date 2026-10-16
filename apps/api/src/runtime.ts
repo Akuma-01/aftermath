@@ -1,3 +1,4 @@
+import { configuredAgents, type AgentRuntimeConfig } from '@aftermath/agents';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { once } from 'node:events';
@@ -9,7 +10,10 @@ import { queueConnection, RepairRuntime } from '@aftermath/queue';
 import { InvestigationService } from './service';
 import { createApp } from './app';
 
-export async function startApi(env: NodeJS.ProcessEnv = process.env) {
+export async function startApi(
+  env: NodeJS.ProcessEnv = process.env,
+  agents: AgentRuntimeConfig | undefined = configuredAgents(env),
+) {
   const port = Number(env.PORT ?? 4000);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid API port');
   const host = env.HOST ?? '127.0.0.1';
@@ -53,7 +57,7 @@ export async function startApi(env: NodeJS.ProcessEnv = process.env) {
       env.DATABASE_URL,
     );
     graph = await EvidenceGraph.open(undefined, env.FALKORDB_URL);
-    const service = new InvestigationService(ledger, graph);
+    const service = new InvestigationService(ledger, graph, agents);
     if (!(await ledger.list()).length) await service.create('commerce');
     queue = await queueConnection(env.QUEUE_REDIS_URL);
     runtime = new RepairRuntime(ledger, service.processor, queue.connection, env.QUEUE_NAME);

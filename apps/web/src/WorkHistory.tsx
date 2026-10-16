@@ -104,7 +104,11 @@ export default function WorkHistory({
                 <span>
                   {new Date(attempt.startedAt).toLocaleTimeString('en-GB', { timeZone: 'UTC' })} UTC
                 </span>
-                <span>Deterministic worker</span>
+                <span>
+                  {attempt.manifest?.promptVersion
+                    ? 'Investigator + reporter'
+                    : 'Deterministic worker'}
+                </span>
               </div>
               {attempt.manifest && (
                 <details>

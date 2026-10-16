@@ -46,6 +46,10 @@ export function createApp(service: InvestigationService, appOrigin = 'http://loc
     }
     next();
   });
+  app.param('callId', (_req, _res, next, value) => {
+    const parsed = z.string().uuid().safeParse(value);
+    next(parsed.success ? undefined : parsed.error);
+  });
   app.use('/api/mcp', mcpRouter(service, allowedOrigins));
   app.get('/api/incidents/:id/service-impact/:serviceId', async (req, res) => {
     res.json(await service.graphAnalysis(req.params.id, 'service-impact', req.params.serviceId));
@@ -55,7 +59,7 @@ export function createApp(service: InvestigationService, appOrigin = 'http://loc
     const ready = incidents[0] ? Boolean((await service.snapshot(incidents[0].id)).graph) : true;
     res.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'graph_unavailable',
-      agentsConfigured: false,
+      agentsConfigured: Boolean(service.agents),
     });
   });
   app.get('/api/incidents', async (_req, res) => {
@@ -88,6 +92,18 @@ export function createApp(service: InvestigationService, appOrigin = 'http://loc
     res
       .status(202)
       .json(await service.repair(req.params.id, data.expectedEventSeq, data.idempotencyKey));
+  });
+  app.post('/api/incidents/:id/investigations', async (req, res) => {
+    const data = command.parse(req.body);
+    res
+      .status(202)
+      .json(await service.investigate(req.params.id, data.expectedEventSeq, data.idempotencyKey));
+  });
+  app.get('/api/incidents/:id/model-calls/:callId', async (req, res) => {
+    res.json(await service.ledger.jobs.modelCallDetail(req.params.id, req.params.callId));
+  });
+  app.get('/api/incidents/:id/tool-calls/:callId', async (req, res) => {
+    res.json(await service.ledger.jobs.toolCallDetail(req.params.id, req.params.callId));
   });
   app.post('/api/incidents/:id/held-reports', async (req, res) => {
     const data = command.parse(req.body);

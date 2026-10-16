@@ -2,8 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
+import { ScriptedProvider, testConfig } from '../tests/support/scripted-provider';
 import { startApi } from '../apps/api/src/runtime';
 
+const scripted = process.argv.includes('--scripted-agents');
+const apiPort = scripted ? 4002 : 4001;
+const webPort = scripted ? 5175 : 5174;
 // Every browser run owns fresh storage and queue/graph engines, never a developer's workspace.
 const directory = await mkdtemp(join(tmpdir(), 'aftermath-web-'));
 let api: Awaited<ReturnType<typeof startApi>> | undefined;
@@ -22,19 +26,22 @@ const close = () =>
     }
   })());
 try {
-  api = await startApi({
-    HOST: '127.0.0.1',
-    PORT: '4001',
-    APP_ORIGIN: 'http://127.0.0.1:5174',
-    DATA_DIR: directory,
-  });
+  api = await startApi(
+    {
+      HOST: '127.0.0.1',
+      PORT: String(apiPort),
+      APP_ORIGIN: `http://127.0.0.1:${webPort}`,
+      DATA_DIR: directory,
+    },
+    scripted ? { config: testConfig, provider: new ScriptedProvider() } : undefined,
+  );
   web = await createServer({
     configFile: 'apps/web/vite.config.ts',
     server: {
       host: '127.0.0.1',
-      port: 5174,
+      port: webPort,
       strictPort: true,
-      proxy: { '/api': 'http://127.0.0.1:4001' },
+      proxy: { '/api': `http://127.0.0.1:${apiPort}` },
     },
   });
   await web.listen();

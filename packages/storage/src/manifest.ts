@@ -22,6 +22,7 @@ export function readArtifacts(incident: Incident) {
       title: incident.title,
       service: incident.service,
       severity: incident.severity,
+      ...(incident.agentConfig ? { agentConfig: incident.agentConfig } : {}),
       topology: incident.topology ?? null,
       diagnosticRecipes: incident.diagnosticRecipes ?? null,
       completedDiagnosticIds: incident.completedDiagnosticIds ?? [],

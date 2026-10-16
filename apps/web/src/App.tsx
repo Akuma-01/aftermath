@@ -207,17 +207,19 @@ export default function App() {
       setSnapshot(await getSnapshot(snapshot.incident.id));
       setConnectionLost(false);
       setNotice(
-        label === 'Repairing report'
-          ? 'Repair queued. Progress and the accepted revision will appear automatically.'
-          : label === 'Opening session'
-            ? 'New session opened with persisted correction memory.'
-            : label === 'Withdrawing source'
-              ? 'Source withdrawn. Automatic repair has been queued.'
-              : label === 'Preparing held report'
-                ? 'A report is being prepared and held before publication.'
-                : label === 'Resuming held report'
-                  ? 'The held attempt will pass through the publication gate using its original input.'
-                  : 'Diagnostic observation recorded. Automatic repair has been queued.',
+        label === 'Starting AI investigation'
+          ? 'Investigator and reporter queued. Follow their calls in Activity.'
+          : label === 'Repairing report'
+            ? 'Repair queued. Progress and the accepted revision will appear automatically.'
+            : label === 'Opening session'
+              ? 'New session opened with persisted correction memory.'
+              : label === 'Withdrawing source'
+                ? 'Source withdrawn. Automatic repair has been queued.'
+                : label === 'Preparing held report'
+                  ? 'A report is being prepared and held before publication.'
+                  : label === 'Resuming held report'
+                    ? 'The held attempt will pass through the publication gate using its original input.'
+                    : 'Diagnostic observation recorded. Automatic repair has been queued.',
       );
       return true;
     } catch (e) {
@@ -908,6 +910,9 @@ export default function App() {
                               <span className="statement-type">
                                 {incident.claims.find((c) => c.id === statement.claimId)?.type}
                               </span>
+                              {statement.author === 'gateway' && (
+                                <span className="small-badge">Support notice</span>
+                              )}
                               {statement.disposition === 'preserved' && !stale && (
                                 <span className="preserved-badge">
                                   <ShieldCheck size={11} />
@@ -931,6 +936,11 @@ export default function App() {
                             >
                               {statement.text}
                             </p>
+                            {statement.uncertainty && (
+                              <p className="statement-uncertainty">
+                                Uncertainty: {statement.uncertainty}
+                              </p>
+                            )}
                             <div className="statement-footer">
                               <button
                                 className="citation"
@@ -940,6 +950,15 @@ export default function App() {
                                 {short(statement.claimId)}
                                 <ArrowUpRight size={10} />
                               </button>
+                              {statement.citationIds?.map((id) => (
+                                <button
+                                  key={id}
+                                  className="citation"
+                                  onClick={() => setSelectedId(id)}
+                                >
+                                  {id}
+                                </button>
+                              ))}
                               <Status
                                 value={stale && !historical ? 'needs_review' : statement.status}
                               />
@@ -949,7 +968,9 @@ export default function App() {
                       </div>
                       <div className="report-footer">
                         <FlaskConical size={13} />
-                        Deterministic report · No model calls
+                        {report.agent
+                          ? `Reporter · ${report.agent.provider}/${report.agent.model} · Model-written interpretation`
+                          : 'Deterministic report · No model calls'}
                       </div>
                     </section>
                   </div>
@@ -1062,7 +1083,14 @@ export default function App() {
                       timeline.
                     </p>
                   </div>
-                  <AgentActivity key={incident.id} snapshot={snapshot} busy={!!busy} />
+                  <AgentActivity
+                    key={incident.id}
+                    snapshot={snapshot}
+                    busy={!!busy}
+                    onRun={() => {
+                      void act('Starting AI investigation', '/investigations');
+                    }}
+                  />
                   <WorkHistory
                     work={snapshot.work}
                     busy={!!busy}

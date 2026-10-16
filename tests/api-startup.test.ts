@@ -22,6 +22,10 @@ it('starts the API process locally, repairs in the background, and reloads durab
       cwd: process.cwd(),
       env: {
         ...process.env,
+        LLM_PROVIDER: '',
+        GEMINI_API_KEY: '',
+        GEMINI_API_KEY_FALLBACK: '',
+        OPENAI_API_KEY: '',
         PORT: '0',
         HOST: '127.0.0.1',
         DATA_DIR: dir,

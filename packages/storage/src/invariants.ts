@@ -100,6 +100,7 @@ export function assertHistory(before: Incident, after: Incident) {
 
 export function reasoningInputs(incident: Incident) {
   return canonical({
+    agentConfig: incident.agentConfig,
     evidence: incident.evidence,
     claims: incident.claims,
     corrections: incident.corrections,

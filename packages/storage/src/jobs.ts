@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
   contextManifestSchema,
+  agentConfigSchema,
+  type AgentConfig,
+  type AgentRole,
+  type ContextManifest,
+  type ModelCallDetail,
+  type ModelCallSummary,
+  type ToolCallSummary,
+  type ToolCallDetail,
   evaluationSchema,
   reportSchema,
   impactSchema,
@@ -11,8 +19,8 @@ import {
 } from '@aftermath/contracts';
 import type { Database, Sql } from './database';
 import { ConflictError, NotFoundError, lockIncident, saveEvent } from './state';
-import { readArtifacts } from './manifest';
-import { validateIncident } from './invariants';
+import { canonical, readArtifacts } from './manifest';
+import { assertHistory, validateIncident } from './invariants';
 const taskColumns = `id, incident_id AS "incidentId", evidence_epoch AS "evidenceEpoch", kind, status,
  attempt_count AS "attemptCount", max_attempts AS "maxAttempts", active_attempt_id AS "activeAttemptId",
  pause_before_commit AS "pauseBeforeCommit", delivery_version AS "deliveryVersion", lease_until AS "leaseUntil",
@@ -34,6 +42,18 @@ export type CommitOutcome = 'accepted' | 'paused' | 'stale' | 'ignored' | 'faile
 export class StaleContextError extends Error {
   override name = 'StaleContextError';
 }
+const callColumns = `id, attempt_id AS "attemptId", role, provider, model, status,
+ started_at AS "startedAt", finished_at AS "finishedAt", latency_ms AS "latencyMs",
+ input_tokens AS "inputTokens", output_tokens AS "outputTokens", error,
+ credential_slot AS "credentialSlot", failover_from_call_id AS "failoverFromCallId"`;
+
+const publicationEvents = new Set([
+  'attempt.paused',
+  'attempt.resumed',
+  'repair.resumed',
+  'agent.call_started',
+]);
+
 export class RepairJobs {
   readonly leaseMs: number;
   readonly retryDelayMs: number;
@@ -60,12 +80,12 @@ export class RepairJobs {
       `SELECT ${attemptColumns} FROM repair_attempts WHERE incident_id=$1 ORDER BY started_at,id`,
       [incidentId],
     );
-    const modelCalls = await this.db.query<{ id: string; status: string }>(
-      'SELECT id,status FROM model_calls WHERE incident_id=$1 ORDER BY started_at,id',
+    const modelCalls = await this.db.query<ModelCallSummary>(
+      `SELECT ${callColumns} FROM model_calls WHERE incident_id=$1 ORDER BY started_at,id`,
       [incidentId],
     );
-    const toolCalls = await this.db.query<{ id: string; status: string }>(
-      'SELECT id,status FROM agent_tool_calls WHERE incident_id=$1 ORDER BY created_at,id',
+    const toolCalls = await this.db.query<ToolCallSummary>(
+      `SELECT id, attempt_id AS "attemptId", model_call_id AS "modelCallId", role, name, status, created_at AS "createdAt" FROM agent_tool_calls WHERE incident_id=$1 ORDER BY created_at,id`,
       [incidentId],
     );
     return json({
@@ -74,6 +94,208 @@ export class RepairJobs {
       modelCalls: modelCalls.rows,
       toolCalls: toolCalls.rows,
     });
+  }
+  async modelCallDetail(incidentId: string, callId: string) {
+    const result = await this.db.query<ModelCallDetail>(
+      `SELECT ${callColumns}, request, response, manifest FROM model_calls WHERE id=$1 AND incident_id=$2`,
+      [callId, incidentId],
+    );
+    if (!result.rows[0]) throw new NotFoundError('Model call not found');
+    return json(result.rows[0]);
+  }
+  async modelCallsUsed(taskId: string) {
+    const result = await this.db.query<{ count: number }>(
+      'SELECT count(*)::integer AS count FROM model_calls WHERE task_id=$1',
+      [taskId],
+    );
+    return result.rows[0].count;
+  }
+  async toolCallDetail(incidentId: string, toolCallId: string) {
+    const result = await this.db.query<ToolCallDetail>(
+      `SELECT id, attempt_id AS "attemptId", model_call_id AS "modelCallId", role, name, status,
+       created_at AS "createdAt", arguments, result, manifest
+       FROM agent_tool_calls WHERE id=$1 AND incident_id=$2`,
+      [toolCallId, incidentId],
+    );
+    if (!result.rows[0]) throw new NotFoundError('Tool call not found');
+    return json(result.rows[0]);
+  }
+  private async assertContext(
+    tx: Sql,
+    incident: Incident,
+    task: RepairTask & { leaseValid: boolean },
+    attemptId: string,
+    manifest: ContextManifest,
+  ) {
+    contextManifestSchema.parse(manifest);
+    const attempt = (
+      await tx.query<{ input_seq: number }>(
+        'SELECT input_seq FROM repair_attempts WHERE id=$1 AND task_id=$2',
+        [attemptId, task.id],
+      )
+    ).rows[0];
+    if (
+      !attempt ||
+      manifest.projectedSeq !== attempt.input_seq ||
+      (incident.events ?? []).some(
+        (e) => e.seq > manifest.projectedSeq && !publicationEvents.has(e.type),
+      ) ||
+      task.evidenceEpoch !== incident.evidenceEpoch ||
+      task.status !== 'running' ||
+      task.activeAttemptId !== attemptId ||
+      !task.leaseValid ||
+      manifest.evidenceEpoch !== incident.evidenceEpoch ||
+      manifest.reportVersion !== incident.reports.at(-1)!.version ||
+      JSON.stringify(manifest.readArtifacts) !== JSON.stringify(readArtifacts(incident))
+    )
+      throw new StaleContextError(
+        'The agent context or worker ownership changed. This attempt cannot publish.',
+      );
+  }
+  async reserveModelCall(
+    taskId: string,
+    attemptId: string,
+    role: AgentRole,
+    config: AgentConfig,
+    request: unknown,
+    manifest: ContextManifest,
+    routing?: Pick<ModelCallSummary, 'credentialSlot' | 'failoverFromCallId'>,
+  ) {
+    const id = randomUUID();
+    const reserved = await this.locked(taskId, async (tx, incident, task) => {
+      await this.assertContext(tx, incident, task, attemptId, manifest);
+      agentConfigSchema.parse(config);
+      if (canonical(config) !== canonical(incident.agentConfig))
+        throw new StaleContextError('Agent configuration changed.');
+      const { rows } = await tx.query<{ count: number }>(
+        'SELECT count(*)::integer AS count FROM model_calls WHERE task_id=$1',
+        [taskId],
+      );
+      if (rows[0].count >= config.maxCalls)
+        throw new Error('Model call budget exhausted for this task, including prior attempts.');
+      if (Buffer.byteLength(JSON.stringify(request)) > config.maxContextBytes)
+        throw new Error('Model context exceeds the configured byte budget.');
+      await tx.query(
+        `INSERT INTO model_calls(id,task_id,attempt_id,incident_id,role,provider,model,status,request,manifest,credential_slot,failover_from_call_id) VALUES ($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11)`,
+        [
+          id,
+          taskId,
+          attemptId,
+          incident.id,
+          role,
+          config.provider,
+          config.model,
+          JSON.stringify(request),
+          JSON.stringify(manifest),
+          routing?.credentialSlot ?? null,
+          routing?.failoverFromCallId ?? null,
+        ],
+      );
+      await tx.query('UPDATE repair_attempts SET manifest=$2 WHERE id=$1', [
+        attemptId,
+        JSON.stringify(manifest),
+      ]);
+      await saveEvent(
+        tx,
+        incident,
+        'agent.call_started',
+        `${role} requested ${config.provider}/${config.model}. Input context is recorded.`,
+      );
+      return id;
+    });
+    if (!reserved) throw new StaleContextError('Worker task no longer exists');
+    return reserved;
+  }
+  async completeModelCall(
+    id: string,
+    result: {
+      response: unknown;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      latencyMs: number;
+      error: string | null;
+    },
+  ) {
+    await this.db.query(
+      `UPDATE model_calls SET status=$2, response=$3, input_tokens=$4, output_tokens=$5, latency_ms=$6, error=$7, finished_at=clock_timestamp() WHERE id=$1 AND status='running'`,
+      [
+        id,
+        result.error ? 'failed' : 'succeeded',
+        JSON.stringify(result.response),
+        result.inputTokens,
+        result.outputTokens,
+        result.latencyMs,
+        result.error,
+      ],
+    );
+  }
+  async recordToolCall(
+    attemptId: string,
+    modelCallId: string,
+    role: AgentRole,
+    name: string,
+    args: unknown,
+    result: unknown,
+    manifest: ContextManifest,
+    status: ToolCallSummary['status'],
+  ) {
+    const id = randomUUID();
+    const inserted = await this.db.query(
+      `INSERT INTO agent_tool_calls(id,attempt_id,model_call_id,incident_id,role,name,status,arguments,result,manifest)
+      SELECT $1,$2,$3,incident_id,$4,$5,$6,$7,$8,$9 FROM model_calls WHERE id=$3 AND attempt_id=$2 AND role=$4 RETURNING id`,
+      [
+        id,
+        attemptId,
+        modelCallId,
+        role,
+        name,
+        status,
+        JSON.stringify(args),
+        JSON.stringify(result),
+        JSON.stringify(manifest),
+      ],
+    );
+    if (!inserted.rows.length) throw new NotFoundError('Matching model call not found');
+    return id;
+  }
+  async applyAgentDiagnostic(
+    taskId: string,
+    attemptId: string,
+    manifest: ContextManifest,
+    recipeId: string,
+    change: (incident: Incident) => void,
+  ) {
+    const result = await this.locked(taskId, async (tx, incident, task) => {
+      await this.assertContext(tx, incident, task, attemptId, manifest);
+      if (task.kind !== 'repair') throw new ConflictError('Held reports cannot run diagnostics');
+      const before = structuredClone(incident);
+      change(incident);
+      assertHistory(before, incident);
+      if (incident.evidenceEpoch !== before.evidenceEpoch + 1)
+        throw new ConflictError('Diagnostic must advance one evidence epoch');
+      await tx.query(
+        'UPDATE repair_tasks SET evidence_epoch=$2, updated_at=clock_timestamp() WHERE id=$1',
+        [taskId, incident.evidenceEpoch],
+      );
+      await tx.query('UPDATE repair_attempts SET evidence_epoch=$2 WHERE id=$1', [
+        attemptId,
+        incident.evidenceEpoch,
+      ]);
+      await saveEvent(
+        tx,
+        incident,
+        'agent.diagnostic_completed',
+        `Investigator ran the read-only ${recipeId} diagnostic. The agent context will be refreshed.`,
+      );
+      await tx.query('UPDATE repair_attempts SET input_seq=$2 WHERE id=$1', [
+        attemptId,
+        incident.eventSeq,
+      ]);
+      validateIncident(incident);
+      return incident;
+    });
+    if (!result) throw new StaleContextError('Worker task no longer exists');
+    return result;
   }
   async rejectStale(taskId: string, attemptId: string, reason: string) {
     await this.locked(taskId, async (tx, incident, task) => {
@@ -86,6 +308,8 @@ export class RepairJobs {
         `UPDATE repair_tasks SET status='superseded', lease_until=NULL, error=$2 WHERE id=$1`,
         [taskId, reason],
       );
+      if (incident.reportStatus === 'needs_review' && task.kind === 'repair')
+        await this.ensure(tx, incident);
       await saveEvent(tx, incident, 'attempt.rejected_stale', reason);
     });
   }
@@ -287,7 +511,7 @@ export class RepairJobs {
           evaluations: evaluationSchema.array().parse(input.evaluations),
           impact: impactSchema.parse(input.impact),
         };
-        const lifecycle = new Set(['attempt.paused', 'attempt.resumed', 'repair.resumed']);
+        const lifecycle = publicationEvents;
         const stale =
           proposal.manifest.projectedSeq !== attempt.inputSeq ||
           (incident.events ?? []).some(

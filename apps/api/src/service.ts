@@ -1,3 +1,5 @@
+import { agentConfigSchema } from '@aftermath/contracts';
+import type { AgentRuntimeConfig } from '@aftermath/agents';
 import { makeReport } from '@aftermath/domain';
 import { randomUUID } from 'node:crypto';
 import type { Diagnostic, GraphView, Snapshot } from '@aftermath/contracts';
@@ -16,8 +18,9 @@ export class InvestigationService {
   constructor(
     readonly ledger: Ledger,
     readonly graph: EvidenceGraph,
+    readonly agents?: AgentRuntimeConfig,
   ) {
-    this.processor = new RepairProcessor(ledger, graph);
+    this.processor = new RepairProcessor(ledger, graph, agents);
   }
   async create(scenario: 'checkout' | 'commerce' = 'checkout') {
     const incident = scenario === 'commerce' ? createCommerceIncident() : createIncident();
@@ -55,11 +58,11 @@ export class InvestigationService {
         graph,
         work,
         graphError,
-        mode: 'deterministic' as const,
+        mode: incident.agentConfig ? 'live' : 'deterministic',
         agentAvailability: {
-          configured: false,
-          provider: null,
-          model: null,
+          configured: Boolean(this.agents),
+          provider: this.agents?.config.provider ?? null,
+          model: this.agents?.config.model ?? null,
         },
         storage: this.ledger.kind === 'PostgreSQL' ? 'PostgreSQL + FalkorDB' : 'PGlite + FalkorDB',
       };
@@ -141,6 +144,29 @@ export class InvestigationService {
       (incident) => {
         if (incident.reportStatus === 'current')
           throw new ConflictError('The report is already current');
+      },
+      true,
+    );
+  }
+  async investigate(id: string, seq: number, key: string) {
+    if (!this.agents)
+      throw new ConflictError(
+        'Configure LLM_PROVIDER, LLM_MODEL and the provider API key on the server to run live agents.',
+      );
+    return this.ledger.mutate(
+      id,
+      seq,
+      this.command(key, 'investigate', seq),
+      'agent.investigation_requested',
+      'A live investigator and reporter run was requested. Subsequent corrections use this model configuration.',
+      (incident) => {
+        if (incident.agentConfig && incident.reportStatus === 'needs_review')
+          throw new ConflictError(
+            'An agent run is already awaiting completion. Use Retry repair after failure.',
+          );
+        incident.agentConfig = agentConfigSchema.parse(this.agents!.config);
+        incident.evidenceEpoch++;
+        incident.reportStatus = 'needs_review';
       },
       true,
     );

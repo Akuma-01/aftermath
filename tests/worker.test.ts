@@ -49,6 +49,10 @@ it.runIf(Boolean(process.env.STORAGE_TEST_DATABASE_URL))(
         cwd: process.cwd(),
         env: {
           ...process.env,
+          LLM_PROVIDER: '',
+          GEMINI_API_KEY: '',
+          GEMINI_API_KEY_FALLBACK: '',
+          OPENAI_API_KEY: '',
           DATABASE_URL: process.env.STORAGE_TEST_DATABASE_URL,
           FALKORDB_URL: graphUrl,
           QUEUE_REDIS_URL: queueUrl,
