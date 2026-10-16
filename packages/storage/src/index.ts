@@ -13,7 +13,8 @@ import {
   type Report,
 } from '@aftermath/contracts';
 import { openDatabase, type Database, type Sql } from './database';
-import { RepairJobs } from './jobs';
+import { RepairJobs, type JobPolicy } from './jobs';
+export { StaleContextError } from './jobs';
 import { ConflictError, NotFoundError, lockIncident, saveEvent } from './state';
 import { canonical, readArtifacts } from './manifest';
 import { assertHistory, reasoningInputs, validateIncident } from './invariants';
@@ -33,13 +34,16 @@ export interface Publication {
 
 export class Ledger {
   readonly jobs: RepairJobs;
-  constructor(private readonly db: Database) {
-    this.jobs = new RepairJobs(db);
+  constructor(
+    private readonly db: Database,
+    policy?: JobPolicy,
+  ) {
+    this.jobs = new RepairJobs(db, policy);
   }
   get kind() {
     return this.db.kind;
   }
-  static async open(path?: string, url?: string) {
+  static async open(path?: string, url?: string, policy?: JobPolicy) {
     const db = await openDatabase(path, url);
     try {
       await db.transaction(async (tx) => {
@@ -52,6 +56,7 @@ export class Ledger {
           '002-repair-jobs.sql',
           '003-agent-calls.sql',
           '004-agent-failover.sql',
+          '005-attempt-sequence.sql',
         ]) {
           if (
             (await tx.query('SELECT name FROM schema_migrations WHERE name=$1', [name])).rows.length
@@ -62,7 +67,7 @@ export class Ledger {
           await tx.query('INSERT INTO schema_migrations(name) VALUES ($1)', [name]);
         }
       });
-      return new Ledger(db);
+      return new Ledger(db, policy);
     } catch (error) {
       await db.close();
       throw error;

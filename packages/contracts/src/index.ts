@@ -133,6 +133,16 @@ export interface Diagnostic {
   paths: Array<{ claimId: string; serviceIds: string[] }>;
 }
 
+export const impactSchema = z.strictObject({
+  targetId: nonEmpty,
+  affectedClaimIds: z.array(nonEmpty),
+  preservedClaimIds: z.array(nonEmpty),
+  unresolvedClaimIds: z.array(nonEmpty),
+  paths: z.array(z.array(nonEmpty)),
+  graphGeneration: nonEmpty,
+});
+export type Impact = z.infer<typeof impactSchema>;
+
 export const domainEventSchema = z.strictObject({
   id: nonEmpty,
   seq: revision,
@@ -157,6 +167,8 @@ export type ContextManifest = z.infer<typeof contextManifestSchema>;
  */
 export const incidentSchema = z.strictObject({
   events: z.array(domainEventSchema).optional(),
+  lastImpact: impactSchema.nullable().optional(),
+  repairError: z.string().nullable().optional(),
   reportManifest: contextManifestSchema.optional(),
   scenario: z.enum(['checkout', 'commerce']).optional(),
   topology: serviceTopologySchema.optional(),
@@ -204,4 +216,42 @@ export interface GraphView {
   edges: GraphEdge[];
   generation: string;
   projectedSeq: number;
+}
+
+export interface RepairProposal {
+  evaluations: Evaluation[];
+  report: Report;
+  impact: Impact;
+  manifest: ContextManifest;
+}
+export interface RepairTask {
+  id: string;
+  incidentId: string;
+  evidenceEpoch: number;
+  kind: 'repair' | 'report_preview';
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'superseded';
+  attemptCount: number;
+  maxAttempts: number;
+  activeAttemptId: string | null;
+  pauseBeforeCommit: boolean;
+  deliveryVersion: number;
+  leaseUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+  reportVersion: number | null;
+}
+export interface RepairAttempt {
+  id: string;
+  taskId: string;
+  incidentId: string;
+  number: number;
+  evidenceEpoch: number;
+  status: 'running' | 'paused' | 'accepted' | 'stale' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  reason: string | null;
+  manifest: ContextManifest | null;
+  inputSeq: number;
+  reportVersion: number | null;
 }

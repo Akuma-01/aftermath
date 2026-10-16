@@ -2,7 +2,7 @@
 set -euo pipefail
 # Use an explicitly supplied test database, or create an isolated disposable cluster.
 if [[ -n "${STORAGE_TEST_DATABASE_URL:-}" ]]; then
-  npm test -- tests/storage.test.ts tests/integration.test.ts
+  npm test -- tests/storage.test.ts tests/integration.test.ts tests/jobs.test.ts tests/queue.test.ts tests/worker.test.ts
   exit
 fi
 pg_bin="${PG_BIN:-/usr/lib/postgresql/16/bin}"
@@ -25,4 +25,4 @@ if ! "$pg_bin/pg_ctl" -D "$pg_dir/data" -l "$pg_dir/server.log" -o "-k $pg_dir -
   exit 1
 fi
 export STORAGE_TEST_DATABASE_URL="postgresql://localhost/postgres?host=$pg_dir"
-npm test -- tests/storage.test.ts tests/integration.test.ts
+npm test -- tests/storage.test.ts tests/integration.test.ts tests/jobs.test.ts tests/queue.test.ts tests/worker.test.ts

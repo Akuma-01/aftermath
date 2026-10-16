@@ -314,7 +314,7 @@ it('persists repair outbox, attempts and agent audit rows with relational constr
     },
   );
   const work = await ledger.jobs.work(initial.id);
-  expect(work.attempts).toEqual([{ id: attempt, status: 'running' }]);
+  expect(work.attempts).toMatchObject([{ id: attempt, status: 'running' }]);
   expect(work.modelCalls).toEqual([{ id: call, status: 'running' }]);
   expect(work.toolCalls).toEqual([{ id: tool, status: 'succeeded' }]);
   const current = await ledger.get(initial.id);
@@ -381,7 +381,7 @@ it('keeps the original idempotent response after later commands and records migr
     'test.migrations',
     'Inspect migrations',
     async (_, tx) => {
-      expect((await tx.query('SELECT name FROM schema_migrations')).rows).toHaveLength(4);
+      expect((await tx.query('SELECT name FROM schema_migrations')).rows).toHaveLength(5);
     },
   );
 });

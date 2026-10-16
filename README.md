@@ -4,7 +4,7 @@ Aftermath is an incident investigation platform built around FalkorDB graph reas
 
 ## Current scope
 
-Milestones 1–4 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. Application entry points remain scaffolds. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. HTTP endpoints, workers, diagnostic execution, and investigation UI features remain deferred. The React entry mounts an empty root, so the development page is intentionally blank.
+Milestones 1–5 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. API and web entry points remain scaffolds. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. HTTP endpoints, agent execution, diagnostic execution, and investigation UI features remain deferred. The React entry mounts an empty root, so the development page is intentionally blank.
 
 ## Core model
 
@@ -50,17 +50,29 @@ The deterministic commerce fixture includes **24 services, 34 dependencies, 17 o
 
 ## Durable incident ledger
 
-`Ledger.open(path)` uses local PGlite; `Ledger.open(undefined, databaseUrl)` uses PostgreSQL. Startup applies four versioned SQL migrations in one transaction, using a PostgreSQL advisory lock to serialize concurrent initialization. Initialization failures reject and close the database connection.
+`Ledger.open(path)` uses local PGlite; `Ledger.open(undefined, databaseUrl)` uses PostgreSQL. Startup applies five versioned SQL migrations in one transaction, using a PostgreSQL advisory lock to serialize concurrent initialization. Initialization failures reject and close the database connection.
 
 SQL stores the authoritative incident snapshot as JSONB, plus ordered domain events and idempotency responses. Creation and each accepted command commit their state and event together. This is a snapshot-plus-event ledger: events describe changes, rather than serving as a standalone replay format. Evidence, claims, corrections and immutable report revisions are retained within the incident snapshot. `get()`, `list()` and `events()` read durable SQL records.
 
 `mutate()` locks the incident row, returns a prior response for an identical command key/fingerprint, and rejects conflicting keys or stale expected sequences. Callers must fingerprint all command parameters. It prevents rewriting existing evidence payloads, claim premises, corrections, reports or events; new evidence versions must advance the source version. Reasoning-input changes advance the evidence epoch and mark evaluations and the report for review. `withdraw()` records the exact withdrawn version and reason; `appendEvidence()` retains prior versions. Both atomically schedule a pending repair task and outbox record.
 
-`publish()` accepts a report prepared outside the transaction. Its gate checks the expected incident sequence, projected sequence, evidence epoch, input report version and canonical artifact hashes (including topology and recipe metadata). It appends the new report with its graph-generation manifest and preserves old reports. The storage layer does not evaluate graph support or verify a graph generation remotely; its trusted caller supplies actual FalkorDB results. Any intervening command conservatively invalidates the proposal at this stage. Worker ownership, leases and attempt-based publication will be added with repair processing.
+`publish()` accepts a report prepared outside the transaction. Its gate checks the expected incident sequence, projected sequence, evidence epoch, input report version and canonical artifact hashes (including topology and recipe metadata). It appends the new report with its graph-generation manifest and preserves old reports. The storage layer does not evaluate graph support or verify a graph generation remotely; its trusted caller supplies actual FalkorDB results. Direct publication rejects any intervening command. Background publication additionally verifies the owning attempt and live lease; only its pause/resume bookkeeping may advance the sequence without invalidating unchanged inputs.
 
-Repair-task, attempt, outbox, model-call and tool-call tables provide durable relationships and audit storage. This milestone implements task scheduling and work-summary reads; it does not execute jobs, dispatch queues, reserve model budgets or invoke providers. Audit-table tests insert synthetic records through SQL and verify foreign-key enforcement.
+Repair-task, attempt, outbox, model-call and tool-call tables provide durable relationships and audit storage. The worker executes deterministic repairs and dispatches durable outbox deliveries. Model budgets and provider invocation remain deferred. Audit-table tests insert synthetic records through SQL and verify foreign-key enforcement.
 
 Run `npm run test:storage` for PGlite persistence and SQL/FalkorDB integration tests. Run `npm run test:postgres` for the same checks plus independent PostgreSQL-client concurrency. The PostgreSQL runner starts and removes a private temporary cluster using `PG_BIN` (default `/usr/lib/postgresql/16/bin`), or uses an explicitly supplied `STORAGE_TEST_DATABASE_URL`. Use a dedicated test database: the suite creates test incidents and audit records. Both integration modes require permission to create database sockets. No paid APIs are used.
+
+## Correction and background repair
+
+A trusted caller submits an already-authorized correction with `ledger.withdraw(incidentId, evidenceId, reason, expectedSeq, idempotencyKey)`. The ledger atomically retains the withdrawn version, records the correction, advances sequence/epoch, marks the report for review, and schedules one repair task with an outbox delivery. Authentication and HTTP command authorization will be implemented at the API boundary; the queue cannot submit corrections.
+
+`RepairProcessor` reads the complete ready FalkorDB generation and follows `DERIVED_FROM` paths from corrected evidence. It evaluates all support groups, identifies affected findings and surviving alternatives, and formats a new report while preserving unchanged statement text. It never substitutes the TypeScript evaluator after a graph failure. Report publication checks input sequence, evidence epoch, prior report version, artifact hashes, graph-generation consistency, active attempt identity and lease expiry in a SQL transaction. Duplicate completion is idempotent. Old reports and correction records remain intact.
+
+`RepairRuntime` uses BullMQ for delivery and SQL for ownership. It polls the durable outbox, recovers expired leases, and replays deliveries lost during Redis restart. Workers renew leases while preparing reports. Failed work receives at most three attempts with exponential delays; exhausted work leaves the report under review with an explicit error. An explicit retry command can create a new task. Held previews retain their original proposal and must pass the same publication gate on resume.
+
+Queue Redis is separate from FalkorDB. `queueConnection()` starts a private temporary Redis with persistence disabled and `noeviction`; SQL remains the recovery source. A Redis URL supports credentials, database selection and TLS. Embedded PGlite is owned by a single process, which can run an in-process `RepairRuntime`; a separate worker requires shared PostgreSQL, FalkorDB and Redis.
+
+Run `npm run test:repair` for deterministic job, Redis recovery and worker tests. `npm run test:postgres` also exercises competing PostgreSQL clients and an actual separate worker process. The tests invoke no AI provider or production diagnostic.
 
 ## Local setup
 
@@ -73,18 +85,18 @@ npm run dev
 
 Vite serves the empty web entry at http://127.0.0.1:5173. The API watcher prints scaffold status; it does not listen on port 4000 yet. The Vite proxy reserves /api for the later API milestone.
 
-To run the API or worker scaffold once:
+To run the API scaffold or start the configured dedicated worker:
 
 ```bash
 npm start
 npm run worker
 ```
 
-Both commands print their status and exit. Use `npm run dev:api`, `npm run dev:web`, or `npm run dev:worker` for individual development processes.
+The API scaffold prints its status and exits. The worker requires `DATABASE_URL`, `FALKORDB_URL` and `QUEUE_REDIS_URL`; it stays running and closes its resources on SIGTERM or SIGINT. Use `npm run dev:api`, `npm run dev:web`, or `npm run dev:worker` for individual development processes.
 
 No external database services, Docker, or provider credentials are required for local tests. Graph tests start the embedded FalkorDB engine and require permission to create local sockets. Installation requires registry access and may fetch native runtime/engine binaries. The Linux x64 engine has been tested; other platforms remain unverified.
 
-The optional `.env.example` describes configuration names reserved for later milestones. The scaffold does not load it. Never commit local `.env` files or credentials.
+Copy `.env.example` to a local `.env` to configure the worker. The worker loads it through dotenv; the API scaffold does not yet use these settings. Never commit local `.env` files or credentials.
 
 ## Verification
 
@@ -95,7 +107,7 @@ npm run build
 npm run format:check
 ```
 
-Run `npm run test:core` for contract, domain, and deterministic-fixture tests. These cover support alternatives, opposition, provenance, scope, malformed dependency graphs, and report revisions. The workspace smoke suite also checks TypeScript source exports. Core tests do not start databases, queues, or models; the full suite starts PGlite and embedded FalkorDB. The separate PostgreSQL run verifies independent-client locking. The build typechecks all source and writes the web bundle to `dist/web`; server entries run as TypeScript through tsx, using the workspace source exports.
+Run `npm run test:core` for contract, domain, and deterministic-fixture tests. These cover support alternatives, opposition, provenance, scope, malformed dependency graphs, and report revisions. The workspace smoke suite also checks TypeScript source exports. Core tests do not start databases, queues, or models; the full suite starts PGlite, embedded FalkorDB and private queue Redis. The separate PostgreSQL run verifies independent-client locking. The build typechecks all source and writes the web bundle to `dist/web`; server entries run as TypeScript through tsx, using the workspace source exports.
 
 Use `npm run test:watch` for Vitest watch mode, `npm run format` to format project files, and `npm run preview` to inspect the built empty web entry. Existing instructions and planning records are excluded from automatic formatting.
 
