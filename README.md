@@ -85,6 +85,14 @@ Repair-task, attempt, outbox, model-call and tool-call tables provide durable re
 
 Run `npm run test:storage` for PGlite persistence and SQL/FalkorDB integration tests. Run `npm run test:postgres` for the same checks plus independent PostgreSQL-client concurrency. The PostgreSQL runner starts and removes a private temporary cluster using `PG_BIN` (default `/usr/lib/postgresql/16/bin`), or uses an explicitly supplied `STORAGE_TEST_DATABASE_URL`. Use a dedicated test database: the suite creates test incidents and audit records. Both integration modes require permission to create database sockets. No paid APIs are used.
 
+## Evidence withdrawal impact preview
+
+Before confirming **Withdraw source**, inspect the FalkorDB-derived before/after comparison: claim statuses, support and opposition groups, provenance, citations requiring review, report conclusions, and related service paths. Independent alternatives can preserve a conclusion even when one support group changes. A citation to withdrawn evidence still requires review.
+
+Previews use disposable graph projections and leave SQL, corrections, reports and jobs unchanged. Each result identifies its incident sequence, evidence epoch, report version and snapshot fingerprint. The dialog blocks confirmation while loading, unavailable or stale; confirmation checks the submitted preview under the SQL incident lock. Existing API callers may still use sequence-checked withdrawal without a preview.
+
+Run `npm run demo:withdrawal-preview` for an isolated, assertion-checked HTTP demo using actual local FalkorDB, PGlite and BullMQ, with no provider configuration. It verifies alternative support, stale rejection and confirmed repair, then removes its temporary data. See [the feature guide](docs/withdrawal-preview.md) for API requests, architecture, browser walkthrough, reproducible checks and limitations.
+
 ## Correction and background repair
 
 A trusted caller submits an already-authorized correction with `ledger.withdraw(incidentId, evidenceId, reason, expectedSeq, idempotencyKey)`. The ledger atomically retains the withdrawn version, records the correction, advances sequence/epoch, marks the report for review, and schedules one repair task with an outbox delivery. The HTTP boundary validates commands and rejects foreign browser origins. It is a trusted local workspace, without multi-user authentication; the queue cannot submit corrections.

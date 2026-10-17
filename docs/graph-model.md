@@ -86,3 +86,9 @@ RETURN node.id AS serviceId, score ORDER BY score DESC, serviceId
 ```
 
 `$ids` identifies the next dependency layer; `$id` is an exact evidence-version ID; `$serviceId` identifies a service. SQL publication independently checks incident sequence, epoch, report version, artifact manifest and worker lease. A ready graph does not authorize stale publication. Failed projection never becomes active; a failed graph read never falls back to a successful TypeScript evaluation.
+
+## Withdrawal preview isolation
+
+`EvidenceGraph.previewWithdrawal()` creates two private projections from one captured incident: the baseline and a copy with only the selected active evidence version marked withdrawn. Both use the same Cypher evaluator above. `IMPACT` identifies potentially affected claims, `MEMBERSHIPS` supplies positive/opposition group comparisons, and `ABOUT` plus service dependency queries supply contextual service paths. The projections do not enter the live generation cache and are deleted after the request, including failed evaluation. Cleanup failure rejects the preview and may leave an orphan requiring operational cleanup.
+
+No correction, report, sequence increment, epoch change or job is persisted by previewing. The returned fingerprint describes the captured input, not an authorization token or a persistent graph generation. See [withdrawal preview](withdrawal-preview.md) for confirmation checks and reproducible examples.

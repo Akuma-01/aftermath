@@ -6,13 +6,17 @@ Run `npm ci`, then `npm run dev`, and open http://127.0.0.1:5173. Leave provider
 
 1. Create a checkout incident. Inspect evidence E1-v1, its environment, time window and origin; inspect C2-v1 and its support groups.
 2. Open the evidence map and inspect AND premises, alternative groups and opposition. Inspect service paths and diagnostic rankings in the service map.
-3. Withdraw E1-v1 with a reason. Observe the report enter review, then the queued repair publish a new report. C2-v1 becomes unsupported; independently supported findings survive.
+3. Click **Withdraw source** for E1-v1. Review the impact comparison: C2/C3 lose support while independent conclusions survive. Enter a reason and confirm **Withdraw evidence**. Observe the report enter review, then the queued repair publish a new report. C2-v1 becomes unsupported; independently supported findings survive.
 4. Compare report revisions and inspect the correction event, worker attempt and publication outcome in activity. Old reports remain available.
 5. Create a commerce incident to inspect the larger topology and execute a registered synthetic diagnostic. These observations are fixture data, not production probes.
 6. Hold a report, apply another correction, then resume held work: obsolete output must be rejected. Inspect correction memory in a fresh session.
 7. Run `npm run benchmark` and open Benchmarks to inspect actual saved local measurements. The dashboard does not invoke models.
 
 Capture the workspace, support explanation, service map and report comparison for a demo. No screenshots or manual browser walkthrough are claimed by this document; automated Chromium coverage is recorded in the verification report. AI activation is optional and requires separately authorized paid-provider testing.
+
+## Withdrawal preview demo
+
+Run `npm run demo:withdrawal-preview` for a fresh temporary local stack, assertions and automatic cleanup. This command uses no paid models and does not touch your `.data` workspace. The [feature guide](withdrawal-preview.md) includes a manual walkthrough, current API format and stale-preview behavior.
 
 ## API example
 
@@ -30,6 +34,8 @@ curl -s http://127.0.0.1:4000/api/incidents/INCIDENT_ID/evidence/E1-v1/withdrawa
   -H 'Content-Type: application/json' \
   -d '{"expectedEventSeq":1,"idempotencyKey":"demo-withdrawal-001","reason":"Observation came from the wrong environment"}'
 ```
+
+This direct withdrawal example remains supported for API compatibility. To require a matching preview at confirmation, use the guarded workflow in the [feature guide](withdrawal-preview.md).
 
 The example sequence of 1 must be replaced if the incident has advanced. Poll the incident snapshot until the report is current, or inspect `/repairs` for failure details.
 
