@@ -1,4 +1,8 @@
-import { agentConfigSchema } from '@aftermath/contracts';
+import {
+  agentConfigSchema,
+  withdrawalPreviewGuardSchema,
+  type WithdrawalPreviewGuard,
+} from '@aftermath/contracts';
 import type { AgentRuntimeConfig } from '@aftermath/agents';
 import { makeReport } from '@aftermath/domain';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +14,7 @@ import {
   applyDiagnostic,
   diagnosticAvailable,
 } from '@aftermath/fixtures';
-import { EvidenceGraph } from '@aftermath/graph';
+import { EvidenceGraph, withdrawalSnapshotFingerprint } from '@aftermath/graph';
 import { ConflictError, Ledger, NotFoundError } from '@aftermath/storage';
 
 export class InvestigationService {
@@ -131,8 +135,54 @@ export class InvestigationService {
     }
     throw new ConflictError('Memory changed during claim inspection. Retry this read.');
   }
-  async withdraw(id: string, evidenceId: string, reason: string, seq: number, key: string) {
-    return this.ledger.withdraw(id, evidenceId, reason, seq, key);
+  async previewWithdrawal(id: string, evidenceId: string, expectedSeq: number) {
+    const incident = await this.ledger.get(id);
+    if (incident.eventSeq !== expectedSeq)
+      throw new ConflictError('Incident changed; refresh before previewing');
+    const target = incident.evidence.find((e) => e.id === evidenceId);
+    if (!target) throw new NotFoundError('Evidence version not found');
+    if (target.status !== 'active')
+      throw new ConflictError('Evidence version is already unavailable');
+    const fingerprint = withdrawalSnapshotFingerprint(incident);
+    const preview = await this.graph.previewWithdrawal(incident, evidenceId);
+    if (withdrawalSnapshotFingerprint(await this.ledger.get(id)) !== fingerprint)
+      throw new ConflictError('Incident changed during preview; refresh and preview again');
+    return preview;
+  }
+  async withdraw(
+    id: string,
+    evidenceId: string,
+    reason: string,
+    seq: number,
+    key: string,
+    preview?: WithdrawalPreviewGuard,
+  ) {
+    const guard = preview === undefined ? undefined : withdrawalPreviewGuardSchema.parse(preview);
+    return this.ledger.withdraw(
+      id,
+      evidenceId,
+      reason,
+      seq,
+      key,
+      guard
+        ? {
+            identity: JSON.stringify(guard),
+            validate: (incident) => {
+              if (
+                guard.evidenceId !== evidenceId ||
+                guard.snapshot.incidentId !== id ||
+                guard.snapshot.eventSeq !== seq ||
+                guard.snapshot.evidenceEpoch !== incident.evidenceEpoch ||
+                guard.snapshot.reportVersion !== (incident.reports.at(-1)?.version ?? null) ||
+                guard.snapshot.fingerprint !== withdrawalSnapshotFingerprint(incident)
+              )
+                throw new ConflictError(
+                  'Withdrawal preview is stale or belongs to another target; preview again',
+                );
+            },
+          }
+        : undefined,
+    );
   }
   async repair(id: string, seq: number, key: string) {
     return this.ledger.mutate(

@@ -201,15 +201,33 @@ export class Ledger {
       }
     });
   }
-  async withdraw(id: string, evidenceId: string, reason: string, expectedSeq: number, key: string) {
+  async withdraw(
+    id: string,
+    evidenceId: string,
+    reason: string,
+    expectedSeq: number,
+    key: string,
+    precondition?: { identity: string; validate: (incident: Incident) => void },
+  ) {
     if (!reason.trim()) throw new Error('Withdrawal reason is required');
     return this.mutate(
       id,
       expectedSeq,
-      { key, fingerprint: canonical(['withdraw', evidenceId, reason, expectedSeq]) },
+      {
+        key,
+        fingerprint: canonical([
+          'withdraw',
+          evidenceId,
+          reason,
+          expectedSeq,
+          ...(precondition ? [precondition.identity] : []),
+        ]),
+      },
       'evidence.withdrawn',
       `${evidenceId} withdrawn: ${reason}`,
       (incident) => {
+        // Runs under the incident lock, after idempotency replay and sequence validation.
+        precondition?.validate(structuredClone(incident));
         const source = incident.evidence.find((e) => e.id === evidenceId);
         if (!source) throw new NotFoundError('Evidence version not found');
         if (source.status !== 'active')

@@ -365,3 +365,167 @@ it('serves real read-only MCP tools and preserves the transport behavior', async
     spy.mockRestore();
   }
 });
+
+it('previews withdrawal through FalkorDB without changing SQL state, work or events', async () => {
+  const incident = await create();
+  const work = await ledger.jobs.work(incident.id);
+  const events = await ledger.events(incident.id);
+  const response = await post(`/api/incidents/${incident.id}/evidence/E1-v1/withdrawal-preview`, {
+    expectedEventSeq: incident.eventSeq,
+  });
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  const preview = await response.json();
+  expect(preview).toMatchObject({
+    readOnly: true,
+    evidenceId: 'E1-v1',
+    snapshot: { incidentId: incident.id, eventSeq: 1 },
+    affectedClaimIds: ['C2-v1', 'C3-v1'],
+  });
+  expect(preview.claims.find((c: { claimId: string }) => c.claimId === 'C2-v1').after.status).toBe(
+    'unsupported',
+  );
+  expect(await ledger.get(incident.id)).toEqual(incident);
+  expect(await ledger.jobs.work(incident.id)).toEqual(work);
+  expect(await ledger.events(incident.id)).toEqual(events);
+});
+
+it('validates preview requests, targets and local origins', async () => {
+  const incident = await create();
+  const path = `/api/incidents/${incident.id}/evidence/E1-v1/withdrawal-preview`;
+  for (const body of [
+    {},
+    { expectedEventSeq: 0 },
+    { expectedEventSeq: '1' },
+    { expectedEventSeq: 1, cypher: 'MATCH (n) RETURN n' },
+  ])
+    expect((await post(path, body)).status).toBe(400);
+  expect(
+    (await post(path, { expectedEventSeq: 1 }, { origin: 'https://untrusted.invalid' })).status,
+  ).toBe(403);
+  expect((await post(path, { expectedEventSeq: 2 })).status).toBe(409);
+  expect((await post(path.replace('E1-v1', 'unknown'), { expectedEventSeq: 1 })).status).toBe(404);
+  expect(
+    (await post(path.replace(incident.id, randomUUID()), { expectedEventSeq: 1 })).status,
+  ).toBe(404);
+  const current = await service.withdraw(
+    incident.id,
+    'E1-v1',
+    'Wrong environment',
+    1,
+    randomUUID(),
+  );
+  expect((await post(path, { expectedEventSeq: current.eventSeq })).status).toBe(409);
+});
+
+it('rejects a preview if SQL changes during graph calculation', async () => {
+  const incident = await create();
+  const original = graph.previewWithdrawal.bind(graph);
+  const spy = vi
+    .spyOn(graph, 'previewWithdrawal')
+    .mockImplementationOnce(async (snapshot, evidenceId) => {
+      const preview = await original(snapshot, evidenceId);
+      await service.freshSession(incident.id, incident.eventSeq, randomUUID());
+      return preview;
+    });
+  try {
+    const response = await post(`/api/incidents/${incident.id}/evidence/E1-v1/withdrawal-preview`, {
+      expectedEventSeq: 1,
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('CONFLICT');
+    expect((await ledger.get(incident.id)).corrections).toEqual([]);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('returns a structured unavailable response when preview graph evaluation fails', async () => {
+  const incident = await create();
+  const spy = vi
+    .spyOn(graph, 'previewWithdrawal')
+    .mockRejectedValueOnce(new Error('Test graph unavailable'));
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const response = await post(`/api/incidents/${incident.id}/evidence/E1-v1/withdrawal-preview`, {
+      expectedEventSeq: 1,
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(await ledger.get(incident.id)).toEqual(incident);
+  } finally {
+    spy.mockRestore();
+    log.mockRestore();
+  }
+});
+
+it('confirms a matching preview atomically and replays the identical command without another correction', async () => {
+  const incident = await create();
+  const path = `/api/incidents/${incident.id}/evidence/E3-v1`;
+  const preview = await (await post(path + '/withdrawal-preview', { expectedEventSeq: 1 })).json();
+  const body = {
+    ...command(1),
+    reason: 'Wrong source observation',
+    preview: { snapshot: preview.snapshot, evidenceId: preview.evidenceId },
+  };
+  const response = await post(path + '/withdrawals', body);
+  expect(response.status).toBe(200);
+  const withdrawn = await response.json();
+  expect(withdrawn.corrections).toHaveLength(1);
+  await repair(incident.id);
+  const replay = await post(path + '/withdrawals', body);
+  expect(replay.status).toBe(200);
+  expect(await replay.json()).toEqual(withdrawn);
+  expect((await ledger.get(incident.id)).corrections).toHaveLength(1);
+  expect((await ledger.jobs.work(incident.id)).tasks).toHaveLength(1);
+  expect(
+    (
+      await post(path + '/withdrawals', {
+        ...body,
+        preview: {
+          ...body.preview,
+          snapshot: { ...body.preview.snapshot, fingerprint: '0'.repeat(64) },
+        },
+      })
+    ).status,
+  ).toBe(409);
+  expect((await post(path + '/withdrawals', { ...body, preview: undefined })).status).toBe(409);
+});
+
+it('rejects mismatched preview guards without durable side effects', async () => {
+  const incident = await create();
+  const preview = await service.previewWithdrawal(incident.id, 'E1-v1', 1);
+  const path = `/api/incidents/${incident.id}/evidence/E1-v1/withdrawals`;
+  const guard = { snapshot: preview.snapshot, evidenceId: preview.evidenceId };
+  for (const invalid of [
+    { ...guard, evidenceId: 'E2-v1' },
+    { ...guard, snapshot: { ...guard.snapshot, incidentId: randomUUID() } },
+    { ...guard, snapshot: { ...guard.snapshot, eventSeq: 2 } },
+    { ...guard, snapshot: { ...guard.snapshot, evidenceEpoch: 2 } },
+    { ...guard, snapshot: { ...guard.snapshot, reportVersion: 2 } },
+    { ...guard, snapshot: { ...guard.snapshot, fingerprint: '0'.repeat(64) } },
+  ])
+    expect(
+      (await post(path, { ...command(1), reason: 'Wrong environment', preview: invalid })).status,
+    ).toBe(409);
+  expect(
+    (await post(path, { ...command(1), reason: 'Wrong environment', preview: {} })).status,
+  ).toBe(400);
+  expect(await ledger.get(incident.id)).toEqual(incident);
+  expect((await ledger.jobs.work(incident.id)).tasks).toEqual([]);
+  expect(await ledger.events(incident.id)).toHaveLength(1);
+});
+
+it('rejects a confirmation after an intervening command, even when the client supplies the new sequence', async () => {
+  const incident = await create();
+  const preview = await service.previewWithdrawal(incident.id, 'E1-v1', 1);
+  const current = await service.freshSession(incident.id, 1, randomUUID());
+  const response = await post(`/api/incidents/${incident.id}/evidence/E1-v1/withdrawals`, {
+    ...command(current.eventSeq),
+    reason: 'Wrong environment',
+    preview: { snapshot: preview.snapshot, evidenceId: preview.evidenceId },
+  });
+  expect(response.status).toBe(409);
+  expect(await ledger.get(incident.id)).toEqual(current);
+  expect((await ledger.jobs.work(incident.id)).tasks).toEqual([]);
+});

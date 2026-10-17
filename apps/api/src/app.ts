@@ -2,6 +2,7 @@ import { BenchmarkStore, benchmarkRouter } from './benchmarks';
 import express from 'express';
 import { mcpRouter } from './mcp';
 import { z } from 'zod';
+import { withdrawalPreviewGuardSchema } from '@aftermath/contracts';
 import { ConflictError, NotFoundError } from '@aftermath/storage';
 import type { InvestigationService } from './service';
 
@@ -9,7 +10,10 @@ const command = z.strictObject({
   expectedEventSeq: z.number().int().positive(),
   idempotencyKey: z.string().min(8).max(200),
 });
-const withdrawal = command.extend({ reason: z.string().trim().min(5).max(1000) });
+const withdrawal = command.extend({
+  reason: z.string().trim().min(5).max(1000),
+  preview: withdrawalPreviewGuardSchema.optional(),
+});
 export function createApp(
   service: InvestigationService,
   appOrigin = 'http://localhost:5173',
@@ -85,6 +89,11 @@ export function createApp(
   app.get('/api/incidents/:id', async (req, res) => {
     res.json(await service.snapshot(req.params.id));
   });
+  app.post('/api/incidents/:id/evidence/:evidenceId/withdrawal-preview', async (req, res) => {
+    const data = z.strictObject({ expectedEventSeq: z.number().int().positive() }).parse(req.body);
+    const evidenceId = z.string().min(1).max(200).parse(req.params.evidenceId);
+    res.json(await service.previewWithdrawal(req.params.id, evidenceId, data.expectedEventSeq));
+  });
   app.post('/api/incidents/:id/evidence/:evidenceId/withdrawals', async (req, res) => {
     const data = withdrawal.parse(req.body);
     res.json(
@@ -94,6 +103,7 @@ export function createApp(
         data.reason,
         data.expectedEventSeq,
         data.idempotencyKey,
+        data.preview,
       ),
     );
   });

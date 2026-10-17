@@ -69,3 +69,10 @@ export const withdrawalPreviewSchema = z.strictObject({
   ),
 });
 export type WithdrawalPreview = z.infer<typeof withdrawalPreviewSchema>;
+
+/** Optimistic precondition for confirmation, not proof of authorization or preview issuance. */
+export const withdrawalPreviewGuardSchema = withdrawalPreviewSchema.pick({
+  snapshot: true,
+  evidenceId: true,
+});
+export type WithdrawalPreviewGuard = z.infer<typeof withdrawalPreviewGuardSchema>;

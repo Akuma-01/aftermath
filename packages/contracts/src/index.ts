@@ -379,5 +379,5 @@ export interface ToolCallDetail extends ToolCallSummary {
 
 export * from './benchmarks';
 
-export { withdrawalPreviewSchema } from './withdrawal-preview';
-export type { WithdrawalPreview } from './withdrawal-preview';
+export { withdrawalPreviewSchema, withdrawalPreviewGuardSchema } from './withdrawal-preview';
+export type { WithdrawalPreview, WithdrawalPreviewGuard } from './withdrawal-preview';
