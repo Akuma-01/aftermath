@@ -15,12 +15,23 @@ import { MAX_DEPENDENCY_DEPTH, validateGraph } from '@aftermath/domain';
 import { READY_CLAIMS, EVALUATE_GROUPS, EVALUATE_CLAIMS, MEMBERSHIPS, IMPACT } from './queries';
 
 import { projectServices, graphDiagnostics, serviceImpact } from './services';
-import { incidentSchema } from '@aftermath/contracts';
+import {
+  incidentSchema,
+  withdrawalPreviewSchema,
+  type WithdrawalPreview,
+} from '@aftermath/contracts';
+import {
+  compareWithdrawal,
+  withdrawalSnapshotFingerprint,
+  type PreviewGroup,
+} from './withdrawal-preview';
+export { withdrawalSnapshotFingerprint } from './withdrawal-preview';
 
 type Client = Pick<EmbeddedDB, 'selectGraph' | 'close'>;
 export class EvidenceGraph {
   private readonly generations = new Map<string, Promise<{ graph: Graph; generation: string }>>();
   private readonly ownedGraphs = new Set<string>();
+  private readonly previews = new Set<Promise<WithdrawalPreview>>();
   private connectionError?: Error;
   private closed = false;
   private closing?: Promise<void>;
@@ -277,6 +288,101 @@ export class EvidenceGraph {
     };
   }
 
+  /** Snapshot-specific advisory read; temporary derived graphs never enter the live cache. */
+  async previewWithdrawal(incident: Incident, evidenceId: string): Promise<WithdrawalPreview> {
+    if (this.closed) throw new Error('Evidence graph is closed');
+    if (this.connectionError)
+      throw new Error('FalkorDB connection failed', { cause: this.connectionError });
+    // Parse before any await so caller mutations cannot mix before/after inputs.
+    const snapshot = incidentSchema.parse(incident);
+    const target = snapshot.evidence.find((e) => e.id === evidenceId);
+    if (!target) throw new Error('Unknown evidence version');
+    if (target.status !== 'active') throw new Error('Only active evidence can be previewed');
+    const run = this.simulateWithdrawal(snapshot, evidenceId);
+    this.previews.add(run);
+    try {
+      return await run;
+    } finally {
+      this.previews.delete(run);
+    }
+  }
+
+  private async simulateWithdrawal(
+    snapshot: Incident,
+    evidenceId: string,
+  ): Promise<WithdrawalPreview> {
+    // Separate caches, shared connection. Closing these owners deletes only their graphs.
+    const client: Client = {
+      selectGraph: (name) => this.db.selectGraph(name),
+      close: async () => {},
+    };
+    const baseline = new EvidenceGraph(client);
+    const simulation = new EvidenceGraph(client);
+    try {
+      const before = await baseline.read(snapshot);
+      const impact = await baseline.impact(snapshot, evidenceId);
+      const { graph: beforeGraph } = await baseline.ready(snapshot);
+      const beforeGroups = await beforeGraph.roQuery<PreviewGroup>(MEMBERSHIPS);
+      const hypothetical = incidentSchema.parse(snapshot);
+      hypothetical.evidence.find((e) => e.id === evidenceId)!.status = 'withdrawn';
+      // No correction, sequence increment, report revision or durable event is fabricated.
+      const after = await simulation.read(hypothetical);
+      const { graph: afterGraph } = await simulation.ready(hypothetical);
+      const afterGroups = await afterGraph.roQuery<PreviewGroup>(MEMBERSHIPS);
+      const affected = new Set(impact.affectedClaimIds);
+      const associations = await beforeGraph.roQuery<{ serviceId: string; artifactId: string }>(
+        `MATCH (n)-[:ABOUT]->(s:Service) WHERE n.id IN $ids AND n.kind IS NOT NULL
+         RETURN DISTINCT s.id AS serviceId, n.id AS artifactId ORDER BY serviceId, artifactId`,
+        { params: { ids: [evidenceId, ...affected] } },
+      );
+      const services: WithdrawalPreview['services'] = [];
+      for (const serviceId of [
+        ...new Set((associations.data ?? []).map((row) => row.serviceId)),
+      ].sort()) {
+        const impact = await baseline.serviceImpact(snapshot, serviceId);
+        services.push({
+          serviceId,
+          artifactIds: (associations.data ?? [])
+            .filter((row) => row.serviceId === serviceId)
+            .map((row) => row.artifactId),
+          dependencyPaths: impact.paths,
+        });
+      }
+      return withdrawalPreviewSchema.parse({
+        kind: 'evidence-withdrawal-preview',
+        readOnly: true,
+        snapshot: {
+          incidentId: snapshot.id,
+          eventSeq: snapshot.eventSeq,
+          evidenceEpoch: snapshot.evidenceEpoch,
+          reportVersion: snapshot.reports.at(-1)?.version ?? null,
+          fingerprint: withdrawalSnapshotFingerprint(snapshot),
+        },
+        evidenceId,
+        affectedClaimIds: [...affected].sort(),
+        paths: impact.paths.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        ...compareWithdrawal(
+          hypothetical,
+          evidenceId,
+          before.evaluations,
+          after.evaluations,
+          beforeGroups.data ?? [],
+          afterGroups.data ?? [],
+          affected,
+        ),
+        services,
+      });
+    } finally {
+      const cleanup = await Promise.allSettled([baseline.close(), simulation.close()]);
+      const failures = cleanup.filter((r) => r.status === 'rejected');
+      if (failures.length)
+        throw new AggregateError(
+          failures.map((r) => r.reason),
+          'Preview graph cleanup failed',
+        );
+    }
+  }
+
   async diagnostics(incident: Incident) {
     const { graph, generation } = await this.ready(incident);
     return graphDiagnostics(graph, generation);
@@ -304,6 +410,7 @@ export class EvidenceGraph {
     if (!this.closing) {
       this.closed = true;
       this.closing = (async () => {
+        await Promise.allSettled(this.previews);
         await Promise.allSettled(this.generations.values());
         const deleted = await Promise.allSettled(
           [...this.ownedGraphs].map((name) => this.db.selectGraph(name).delete()),
