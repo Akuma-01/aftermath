@@ -30,7 +30,10 @@
     "test:api": "vitest run tests/api.test.ts tests/mcp.test.ts tests/api-startup.test.ts",
     "test:web": "playwright test",
     "test:agents": "vitest run tests/agents.test.ts tests/provider.test.ts tests/agent-graph-tools.test.ts tests/agent-api.test.ts",
-    "test:web:agents": "playwright test --config playwright.agents.config.ts"
+    "test:web:agents": "playwright test --config playwright.agents.config.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
+    "test:evaluation": "vitest run tests/evaluation.test.ts tests/benchmarks.test.ts tests/diagnostic-evaluation.test.ts tests/benchmark-cli.test.ts",
+    "benchmark:diagnostics": "tsx scripts/benchmark-diagnostics.ts"
   },
   "engines": {
     "node": ">=20.19.0",

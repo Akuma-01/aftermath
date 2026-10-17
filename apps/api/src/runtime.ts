@@ -1,3 +1,4 @@
+import { BenchmarkStore } from './benchmarks';
 import { configuredAgents, type AgentRuntimeConfig } from '@aftermath/agents';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -13,6 +14,7 @@ import { createApp } from './app';
 export async function startApi(
   env: NodeJS.ProcessEnv = process.env,
   agents: AgentRuntimeConfig | undefined = configuredAgents(env),
+  benchmarks?: BenchmarkStore,
 ) {
   const port = Number(env.PORT ?? 4000);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid API port');
@@ -62,7 +64,11 @@ export async function startApi(
     queue = await queueConnection(env.QUEUE_REDIS_URL);
     runtime = new RepairRuntime(ledger, service.processor, queue.connection, env.QUEUE_NAME);
     await runtime.start();
-    const app = createApp(service, env.APP_ORIGIN);
+    const app = createApp(
+      service,
+      env.APP_ORIGIN,
+      benchmarks ?? new BenchmarkStore(resolve(dataDir, 'benchmarks')),
+    );
     app.use(express.static(resolve('dist/web')));
     app.get('/{*path}', (_req, res) => res.sendFile(resolve('dist/web/index.html')));
     server = app.listen(port, host);

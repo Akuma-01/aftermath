@@ -1,3 +1,4 @@
+import { BenchmarkStore, benchmarkRouter } from './benchmarks';
 import express from 'express';
 import { mcpRouter } from './mcp';
 import { z } from 'zod';
@@ -9,7 +10,11 @@ const command = z.strictObject({
   idempotencyKey: z.string().min(8).max(200),
 });
 const withdrawal = command.extend({ reason: z.string().trim().min(5).max(1000) });
-export function createApp(service: InvestigationService, appOrigin = 'http://localhost:5173') {
+export function createApp(
+  service: InvestigationService,
+  appOrigin = 'http://localhost:5173',
+  benchmarks = new BenchmarkStore(),
+) {
   const app = express();
   const allowedOrigins = new Set([appOrigin]);
   const configuredOrigin = new URL(appOrigin);
@@ -50,6 +55,7 @@ export function createApp(service: InvestigationService, appOrigin = 'http://loc
     const parsed = z.string().uuid().safeParse(value);
     next(parsed.success ? undefined : parsed.error);
   });
+  app.use('/api/benchmarks', benchmarkRouter(benchmarks));
   app.use('/api/mcp', mcpRouter(service, allowedOrigins));
   app.get('/api/incidents/:id/service-impact/:serviceId', async (req, res) => {
     res.json(await service.graphAnalysis(req.params.id, 'service-impact', req.params.serviceId));

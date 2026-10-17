@@ -4,7 +4,7 @@ Aftermath is an incident investigation platform built around FalkorDB graph reas
 
 ## Current scope
 
-Milestones 1–8 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the React workspace provides evidence and service maps, correction workflows, report history, and activity inspection. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Bounded investigator and reporter agents produce validated, cited proposals. The benchmark dashboard remains deferred. Registered diagnostic commands add deterministic synthetic observations.
+Milestones 1–9 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the React workspace provides evidence and service maps, correction workflows, report history, and activity inspection. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Bounded investigator and reporter agents produce validated, cited proposals. The saved benchmark dashboard compares deterministic report-selection policies. Registered diagnostic commands add deterministic synthetic observations.
 
 ## Core model
 
@@ -92,7 +92,7 @@ The React/TypeScript interface uses React Flow for interactive evidence and serv
 
 Withdrawals require a reason and use sequence-checked, idempotent commands. The workspace polls repair progress, displays preserved and revised findings, and retains every report version with a revision diff. Activity shows worker attempts, publication results, and held-report controls. Memory opens a fresh correction-retrieval session. Incident selection survives reload; obsolete poll responses cannot replace a newly selected investigation.
 
-The agent activity panel renders the audit summaries available from the backend. Its run control enables an explicitly configured provider, shows usage and failover, and opens recorded model requests and responses. No benchmark dashboard is included.
+The agent activity panel renders the audit summaries available from the backend. Its run control enables an explicitly configured provider, shows usage and failover, and opens recorded model requests and responses. Saved benchmarks are available independently through the Benchmarks tab.
 
 `npm run test:web` runs Chromium end-to-end checks against an isolated API, PGlite, FalkorDB, and Redis, using temporary storage and ports 4001/5174. Install Chromium with `npx playwright install chromium` if unavailable; Linux may also require browser system libraries. Tests cover desktop/mobile recovery, alternative support, contested findings, commerce diagnostics, held-work rejection, historical reports, incident switching, and failure states. Browser artifacts are ignored by Git. API-client unit tests run with `npm test -- tests/web-api.test.ts`. No paid APIs are used.
 
@@ -109,6 +109,29 @@ The investigator reads evidence, graph support, correction memory and ranked dia
 Calls are bounded by a task-wide SQL budget (4–20 calls), output limit (256–8192 tokens), context limit (8000–128000 bytes), and timeout (1–120 seconds). Invalid tool proposals stop after two rejections. Protocol versions v1–v4 remain readable; new investigations use v4. Provider requests are reserved before dispatch and audited separately from validated tool results. `model-calls/:callId` and `tool-calls/:callId` expose incident-scoped audit details. Publication checks the original sequence, graph generation, evidence epoch, artifacts, report version and lease, allowing only defined lifecycle and model-audit events between reads. Stale results cannot publish.
 
 `npm run test:agents` uses scripted providers and intercepted HTTP responses with actual local SQL and FalkorDB. `npm run test:postgres` additionally exercises agent persistence on PostgreSQL. `npm run test:web:agents` starts a separate isolated stack on ports 4002/5175 with a test-only scripted provider, covering activation, audits, report publication and correction repair through the browser and BullMQ. These checks make no paid model requests. Live provider availability and model output quality require separately authorized verification.
+
+## Deterministic evaluation and saved benchmarks
+
+`@aftermath/evaluation` contains 41 structural cases from 15 motifs, six malformed-graph cases, and five diagnostic conditions. Each case specifies independent expected support states, origin counts, affected claims and required report reviews. Coverage includes AND/OR support, surviving alternatives, stale citations, opposition, scope corrections, replacement evidence, copied provenance and bounded dependency depth. Snapshot content/scope changes are simulated evaluation inputs; they do not bypass the append-only incident ledger in the application.
+
+The three policies are **full rerun** (request every statement), **descendant invalidation** (request graph descendants), and **Aftermath** (request statements whose support, citations or cited artifacts require review). All three evaluate the full support graph. FalkorDB supplies the measured support and impact results; the TypeScript domain evaluator provides an independent parity check. Reports use seeded prior wording and deterministic formatting, with no model invocation.
+
+```bash
+npm run test:evaluation
+npm run benchmark -- --seed=7 --repetitions=3 --projection=cold
+npm run benchmark -- --seed=7 --repetitions=3 --projection=warm
+npm run benchmark:diagnostics
+```
+
+Structural runs write `results.json`, `trials.csv`, `cases.json`, `metadata.json`, and `summary.md` under `DATA_DIR/benchmarks/run-*` (default `.data/benchmarks`). Failure artifacts retain execution errors. The seed reproduces case/method order; case and source SHA-256 hashes identify inputs and code. Recorded HEAD identifies the checkout, while source hashes also cover uncommitted implementation changes. Timestamps and elapsed times are actual run observations and are not deterministic.
+
+Metrics report support/origin accuracy, required-review precision and recall, preservation of eligible affected statements, unsupported assertions, revision counts and local elapsed times. Aggregate ratios sum numerators and denominators; zero denominators are N/A. Failed trials remain included. Cold times include corrected graph projection; warm runs prepare each graph before timing and record preparation separately. Initial report preparation is excluded. These are development fixtures, not held-out incidents. No token savings, production costs, AI prose quality, or end-to-end worker performance are measured.
+
+The diagnostic command uses actual FalkorDB coverage, paths and prerequisite checks to rank the five reference conditions, executes only the selected registered synthetic outcome, and checks independent before/after states. It writes separate results under `DATA_DIR/diagnostic-evaluations/run-*`; it does not evaluate a model's diagnostic choices or production probe latency. The dashboard presents structural policy runs; diagnostic results are available in the CLI JSON output.
+
+Read-only endpoints are `GET /api/benchmarks`, `GET /api/benchmarks/:runId`, and `GET /api/benchmarks/:runId/artifacts/:name`. The API validates schemas, trial completeness, outcomes and recomputed summaries, limits artifacts to 16 MiB, and refuses traversal, symbolic links and non-files. The UI selects one run at a time, filters and inspects trials, shows failures and provenance, and downloads exact saved artifacts. Viewing results never starts an evaluation. Incomplete and invalid runs stay visible; cold/warm datasets are not merged. Example numbers exist only in explicitly labeled test fixtures.
+
+Evaluation requires the installed embedded FalkorDB binary, writable temporary/artifact directories and local socket permissions. Artifact API/browser checks additionally need HTTP listeners and Chromium. Structural and diagnostic CLI commands require no PostgreSQL, queue Redis, credentials or paid AI services. The full application and general integration suite retain their existing database and queue requirements.
 
 ## Local setup
 

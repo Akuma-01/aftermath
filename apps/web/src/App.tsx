@@ -1,6 +1,8 @@
+import Benchmarks from './Benchmarks';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
+  BarChart3,
   ArrowRight,
   ArrowUpRight,
   BookOpen,
@@ -85,7 +87,7 @@ export default function App() {
   const [supportRetry, setSupportRetry] = useState(0);
   const [supportError, setSupportError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState('E1-v1');
-  const [tab, setTab] = useState<'workspace' | 'activity' | 'memory'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'activity' | 'memory' | 'benchmarks'>('workspace');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -335,6 +337,14 @@ export default function App() {
         >
           <BookOpen size={21} />
         </button>
+        <button
+          className={tab === 'benchmarks' ? 'rail-button active' : 'rail-button'}
+          title="Saved benchmarks"
+          aria-label="Saved benchmarks"
+          onClick={() => setTab('benchmarks')}
+        >
+          <BarChart3 size={20} />
+        </button>
         <div className="rail-bottom">
           <span className="rail-live" title="Local workspace" />
           <div className="avatar">A</div>
@@ -348,7 +358,7 @@ export default function App() {
           <div className="breadcrumb">
             <span>Workspace</span>
             <span>/</span>
-            <strong>Investigations</strong>
+            <strong>{tab === 'benchmarks' ? 'Benchmarks' : 'Investigations'}</strong>
           </div>
           <span className="fixture-pill">
             <FlaskConical size={13} />
@@ -368,7 +378,7 @@ export default function App() {
           </a>
         </header>
         <main>
-          <div className="page-heading">
+          <div className="page-heading" hidden={tab === 'benchmarks'}>
             <div>
               <div className="eyebrow">
                 <span className="live-dot" />
@@ -431,7 +441,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {!snapshot && (
+          {!snapshot && tab !== 'benchmarks' && (
             <div className="loading-panel">
               {error ? <Unplug size={28} /> : <LoaderCircle className="spin" size={28} />}
               <h2>
@@ -448,7 +458,7 @@ export default function App() {
               </p>
             </div>
           )}
-          {incidents.length > 0 && (
+          {incidents.length > 0 && tab !== 'benchmarks' && (
             <label className="incident-picker">
               Investigation
               <select
@@ -488,6 +498,13 @@ export default function App() {
                 <BookOpen size={15} />
                 Memory<span className="tab-count">{incident?.corrections.length ?? 0}</span>
               </button>
+              <button
+                className={tab === 'benchmarks' ? 'tab active' : 'tab'}
+                onClick={() => setTab('benchmarks')}
+              >
+                <BarChart3 size={15} />
+                Benchmarks
+              </button>
             </div>
             <div className="toolbar-status">
               <span className={`live-dot ${snapshot?.graph && !connectionLost ? '' : 'offline'}`} />
@@ -502,6 +519,7 @@ export default function App() {
               {incident?.evidence.filter((e) => e.status === 'active').length ?? 0} active sources
             </div>
           </div>
+          {tab === 'benchmarks' && <Benchmarks />}
           {snapshot && incident && report && (
             <>
               {tab === 'workspace' && (

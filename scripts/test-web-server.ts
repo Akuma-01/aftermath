@@ -1,3 +1,4 @@
+import { BenchmarkStore } from '../apps/api/src/benchmarks';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +35,7 @@ try {
       DATA_DIR: directory,
     },
     scripted ? { config: testConfig, provider: new ScriptedProvider() } : undefined,
+    new BenchmarkStore('test-results/benchmark-artifacts'),
   );
   web = await createServer({
     configFile: 'apps/web/vite.config.ts',
