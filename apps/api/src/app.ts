@@ -21,14 +21,18 @@ export function createApp(
   if (['localhost', '127.0.0.1'].includes(configuredOrigin.hostname)) {
     for (const host of ['localhost', '127.0.0.1']) {
       allowedOrigins.add(
-        `${configuredOrigin.protocol}//${host}:${configuredOrigin.port || '5173'}`,
+        `${configuredOrigin.protocol}//${host}${configuredOrigin.port ? ':' + configuredOrigin.port : ''}`,
       );
-      allowedOrigins.add(`http://${host}:${process.env.PORT ?? '4000'}`);
     }
   }
   app.disable('x-powered-by');
   // Local development boundary; no public multi-user deployment is implied.
   app.use('/api', (req, res, next) => {
+    // Trust the listening socket, never Host or a global PORT from another runtime.
+    if (['localhost', '127.0.0.1'].includes(configuredOrigin.hostname) && req.socket.localPort) {
+      for (const host of ['localhost', '127.0.0.1'])
+        allowedOrigins.add(`http://${host}:${req.socket.localPort}`);
+    }
     res.setHeader('Cache-Control', 'no-store');
     if (
       !['GET', 'HEAD'].includes(req.method) &&

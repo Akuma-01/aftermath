@@ -1,10 +1,33 @@
 # Aftermath
 
-Aftermath is an incident investigation platform built around FalkorDB graph reasoning, PostgreSQL/PGlite persistence, and bounded AI investigator and reporter workflows. The intended application traces findings to versioned evidence and repairs reports when that evidence changes.
+Aftermath is an incident investigation platform built around FalkorDB graph reasoning, PostgreSQL/PGlite persistence, and bounded AI investigator and reporter workflows. The application traces findings to versioned evidence and repairs reports when that evidence changes.
 
 ## Current scope
 
-Milestones 1–9 provide validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the React workspace provides evidence and service maps, correction workflows, report history, and activity inspection. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Bounded investigator and reporter agents produce validated, cited proposals. The saved benchmark dashboard compares deterministic report-selection policies. Registered diagnostic commands add deterministic synthetic observations.
+The application provides validated core incident, evidence, claim, correction, and report contracts; an independently testable TypeScript support evaluator; immutable report formatting; and deterministic unit-test fixtures. The Express backend exposes incident investigation and read-only MCP tools; the React workspace provides evidence and service maps, correction workflows, report history, and activity inspection. FalkorDB projects and evaluates the evidence graph, service topology, and diagnostic availability and coverage. SQL persistence now provides a transactional incident and event ledger. Background repair runs through BullMQ and a dedicated worker. Bounded investigator and reporter agents produce validated, cited proposals. The saved benchmark dashboard compares deterministic report-selection policies. Registered diagnostic commands add deterministic synthetic observations.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UI[React / React Flow] --> API[Express API]
+  MCP[Read-only MCP clients] --> API
+  API --> SQL[PostgreSQL / PGlite ledger]
+  API --> Graph[FalkorDB generations]
+  SQL --> Outbox[Durable outbox]
+  Outbox --> Queue[Redis / BullMQ]
+  Queue --> Worker[Repair runtime]
+  Worker --> Graph
+  Worker --> Agents[Bounded investigator / reporter]
+  Agents --> Provider[Optional Gemini / OpenAI]
+  Worker --> Gate[Sequence, manifest and lease checks]
+  Gate --> SQL
+  Eval[Deterministic evaluation] --> Graph
+  Eval --> Artifacts[Saved benchmark artifacts]
+  API --> Artifacts
+```
+
+SQL owns durable commands and history; graph generations provide derived reasoning. A separate worker needs shared services, while the default local API owns the embedded engines and worker runtime. See [actual Cypher queries](docs/graph-model.md), [demo and troubleshooting](docs/demo.md), and [release verification](docs/release-verification.md).
 
 ## Core model
 
@@ -46,7 +69,7 @@ Coverage includes unsupported or contested findings connected to the recipe's se
 
 The deterministic commerce fixture includes **24 services, 34 dependencies, 17 observations and 18 claims**. Database-evidence withdrawal invalidates dependent explanations while retaining an independently supported order finding. The three recipes contain metadata only; their hidden observations are absent from the initial graph. These fixtures use fixed test identities and synthetic timestamps, used for reproducible tests.
 
-`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. Agents remain deferred. Generation caching and cleanup limitations described above still apply.
+`npm run test:graph` runs both graph and diagnostic suites against the real embedded engine. Generation caching and cleanup limitations described above still apply.
 
 ## Durable incident ledger
 
@@ -56,9 +79,9 @@ SQL stores the authoritative incident snapshot as JSONB, plus ordered domain eve
 
 `mutate()` locks the incident row, returns a prior response for an identical command key/fingerprint, and rejects conflicting keys or stale expected sequences. Callers must fingerprint all command parameters. It prevents rewriting existing evidence payloads, claim premises, corrections, reports or events; new evidence versions must advance the source version. Reasoning-input changes advance the evidence epoch and mark evaluations and the report for review. `withdraw()` records the exact withdrawn version and reason; `appendEvidence()` retains prior versions. Both atomically schedule a pending repair task and outbox record.
 
-`publish()` accepts a report prepared outside the transaction. Its gate checks the expected incident sequence, projected sequence, evidence epoch, input report version and canonical artifact hashes (including topology and recipe metadata). It appends the new report with its graph-generation manifest and preserves old reports. The storage layer does not evaluate graph support or verify a graph generation remotely; its trusted caller supplies actual FalkorDB results. Direct publication rejects any intervening command. Background publication additionally verifies the owning attempt and live lease; only its pause/resume bookkeeping may advance the sequence without invalidating unchanged inputs.
+`publish()` accepts a report prepared outside the transaction. Its gate checks the expected incident sequence, projected sequence, evidence epoch, input report version and canonical artifact hashes (including topology and recipe metadata). It appends the new report with its graph-generation manifest and preserves old reports. The storage layer does not evaluate graph support or verify a graph generation remotely; its trusted caller supplies actual FalkorDB results. Direct publication rejects any intervening command. Background publication additionally verifies the owning attempt and live lease; only defined lifecycle and model-audit events may advance the sequence without invalidating unchanged inputs.
 
-Repair-task, attempt, outbox, model-call and tool-call tables provide durable relationships and audit storage. The worker executes deterministic repairs and dispatches durable outbox deliveries. Model budgets and provider invocation remain deferred. Audit-table tests insert synthetic records through SQL and verify foreign-key enforcement.
+Repair-task, attempt, outbox, model-call and tool-call tables provide durable relationships and audit storage. The worker executes deterministic repairs and dispatches durable outbox deliveries. Model requests use persisted budgets and bounded provider execution. Audit-table tests insert synthetic records through SQL and verify foreign-key enforcement.
 
 Run `npm run test:storage` for PGlite persistence and SQL/FalkorDB integration tests. Run `npm run test:postgres` for the same checks plus independent PostgreSQL-client concurrency. The PostgreSQL runner starts and removes a private temporary cluster using `PG_BIN` (default `/usr/lib/postgresql/16/bin`), or uses an explicitly supplied `STORAGE_TEST_DATABASE_URL`. Use a dedicated test database: the suite creates test incidents and audit records. Both integration modes require permission to create database sockets. No paid APIs are used.
 
@@ -164,6 +187,10 @@ npm run typecheck
 npm test
 npm run build
 npm run format:check
+npm run verify:workspace
+npm run test:postgres
+npm run test:web
+npm run test:web:agents
 ```
 
 Run `npm run test:core` for contract, domain, and deterministic-fixture tests. These cover support alternatives, opposition, provenance, scope, malformed dependency graphs, and report revisions. The workspace smoke suite also checks TypeScript source exports. Core tests do not start databases, queues, or models; the full suite starts PGlite, embedded FalkorDB and private queue Redis. The separate PostgreSQL run verifies independent-client locking. The build typechecks all source and writes the web bundle to `dist/web`; server entries run as TypeScript through tsx, using the workspace source exports.
@@ -172,7 +199,7 @@ Use `npm run test:watch` for Vitest watch mode, `npm run format` to format proje
 
 ## Workspace layout
 
-| Path                  | Intended responsibility                         |
+| Path                  | Responsibility                                  |
 | --------------------- | ----------------------------------------------- |
 | `apps/api`            | Express API and application startup             |
 | `apps/web`            | React/Vite investigation workspace              |
@@ -187,9 +214,13 @@ Use `npm run test:watch` for Vitest watch mode, `npm run format` to format proje
 | `packages/agents`     | Bounded provider tools and report proposals     |
 | `packages/evaluation` | Structural evaluation and acceptance cases      |
 
-Dependencies are centralized in the root manifest. Shared packages export `src/index.ts` directly and are private workspaces. The intended runtime stack uses FalkorDB for relationship-derived reasoning, SQL for durable state, dedicated Redis/BullMQ for delivery, Express for HTTP, and React/React Flow for the browser.
+Dependencies are centralized in the root manifest. Shared packages export `src/index.ts` directly and are private workspaces. The runtime stack uses FalkorDB for relationship-derived reasoning, SQL for durable state, dedicated Redis/BullMQ for delivery, Express for HTTP, and React/React Flow for the browser.
 
-Dependencies, caches, build output, local databases, benchmark artifacts, and provider traces are excluded from Git. Further functionality is delivered through independently tested milestones.
+Dependencies, caches, build output, local databases, benchmark artifacts, and provider traces are excluded from Git.
+
+## Recovery and diagnostic acceptance
+
+`npm run test:acceptance` exercises recovery, bounded diagnostic choices, stale proposals, durable checkpoints, and the HTTP lifecycle using scripted providers and actual local services. `npm run test:agents:live -- --list-diagnostics` lists scenarios offline. The live harness requires explicit `--allow-live` plus provider configuration; it can make paid requests and is not part of default verification. Recovery and diagnostic artifacts remain under `DATA_DIR` and outside Git. Scripted acceptance does not establish live model quality or provider availability.
 
 ## Acknowledgments
 

@@ -33,7 +33,10 @@
     "test:web:agents": "playwright test --config playwright.agents.config.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "test:evaluation": "vitest run tests/evaluation.test.ts tests/benchmarks.test.ts tests/diagnostic-evaluation.test.ts tests/benchmark-cli.test.ts",
-    "benchmark:diagnostics": "tsx scripts/benchmark-diagnostics.ts"
+    "benchmark:diagnostics": "tsx scripts/benchmark-diagnostics.ts",
+    "test:acceptance": "vitest run tests/live-recovery.test.ts tests/agent-diagnostics.test.ts tests/release.test.ts",
+    "test:agents:live": "tsx scripts/test-agents-live.ts",
+    "verify:workspace": "tsx scripts/verify-workspace.ts"
   },
   "engines": {
     "node": ">=20.19.0",
