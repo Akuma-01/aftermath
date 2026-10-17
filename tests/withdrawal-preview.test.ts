@@ -226,3 +226,111 @@ it('fingerprints report and evidence changes even at the same sequence and valid
     after: { status: 'unsupported' },
   });
 });
+
+it('waits for an in-flight preview before closing and removes every temporary graph', async () => {
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let blocked = false;
+  let disconnected = false;
+  const names = new Set<string>();
+  const isolated = new EvidenceGraph({
+    selectGraph(name) {
+      names.add(name);
+      const graph = db.selectGraph(name);
+      const query = graph.query.bind(graph);
+      vi.spyOn(graph, 'query').mockImplementation(async (...args) => {
+        if (!blocked) {
+          blocked = true;
+          entered();
+          await gate;
+        }
+        expect(disconnected).toBe(false);
+        return query(...args);
+      });
+      return graph;
+    },
+    close: async () => {
+      disconnected = true;
+    },
+  });
+  const preview = isolated.previewWithdrawal(createIncident(), 'E1-v1');
+  await started;
+  const closing = isolated.close();
+  try {
+    expect(disconnected).toBe(false);
+    await expect(isolated.previewWithdrawal(createIncident(), 'E3-v1')).rejects.toThrow('closed');
+  } finally {
+    release();
+  }
+  expect((await preview).affectedClaimIds).toEqual(['C2-v1', 'C3-v1']);
+  await closing;
+  expect(disconnected).toBe(true);
+  const remaining = await db.list();
+  for (const name of names) expect(remaining).not.toContain(name);
+});
+
+it('does not return success when temporary graph cleanup fails', async () => {
+  const names = new Set<string>();
+  let injected = false;
+  const isolated = new EvidenceGraph({
+    selectGraph(name) {
+      names.add(name);
+      const graph = db.selectGraph(name);
+      const remove = graph.delete.bind(graph);
+      vi.spyOn(graph, 'delete').mockImplementation(async () => {
+        if (!injected) {
+          injected = true;
+          throw new Error('Injected deletion failure');
+        }
+        return remove();
+      });
+      return graph;
+    },
+    close: async () => {},
+  });
+  try {
+    await expect(isolated.previewWithdrawal(createIncident(), 'E1-v1')).rejects.toThrow(
+      'Preview graph cleanup failed',
+    );
+  } finally {
+    await isolated.close();
+    // The injected outage leaves an orphan; remove only this test's explicitly owned graphs.
+    const remaining = await db.list();
+    for (const name of names) if (remaining.includes(name)) await db.selectGraph(name).delete();
+  }
+});
+
+it('keeps concurrent incidents isolated and distinguishes pre-existing citation issues from withdrawal changes', async () => {
+  const first = createIncident();
+  first.evidence.find((e) => e.id === 'E4-v1')!.status = 'quarantined';
+  first.reports[0].statements.find((s) => s.claimId === 'C4-v1')!.citationIds = ['E4-v1'];
+  first.reports[0].statements.find((s) => s.claimId === 'C3-v1')!.citationIds = ['C2-v1'];
+  const second = createIncident();
+  second.id = 'other-incident';
+  second.claims
+    .find((c) => c.id === 'C2-v1')!
+    .oppositionGroups.push({ id: 'opp-safety', ruleId: 'test', memberIds: ['E5-v1'] });
+  const [a, b] = await Promise.all([
+    engine.previewWithdrawal(first, 'E1-v1'),
+    engine.previewWithdrawal(second, 'E3-v1'),
+  ]);
+  expect(a.snapshot.incidentId).not.toBe(b.snapshot.incidentId);
+  expect(a.conclusions.find((s) => s.claimId === 'C4-v1')).toMatchObject({
+    change: 'unchanged',
+    requiresReview: true,
+    affectedCitationIds: [],
+  });
+  expect(a.conclusions.find((s) => s.claimId === 'C3-v1')?.affectedCitationIds).toEqual(['C2-v1']);
+  expect(b.claims.find((c) => c.claimId === 'C2-v1')).toMatchObject({
+    change: 'unchanged',
+    before: { status: 'contested' },
+    after: { status: 'contested' },
+  });
+  expect(b.claims.find((c) => c.claimId === 'C4-v1')?.after.status).toBe('supported');
+});

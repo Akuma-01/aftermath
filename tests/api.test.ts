@@ -529,3 +529,71 @@ it('rejects a confirmation after an intervening command, even when the client su
   expect(await ledger.get(incident.id)).toEqual(current);
   expect((await ledger.jobs.work(incident.id)).tasks).toEqual([]);
 });
+
+it.each([true, false])(
+  'serializes concurrent preview confirmations (same key: %s)',
+  async (sameKey) => {
+    const incident = await create();
+    const preview = await service.previewWithdrawal(incident.id, 'E1-v1', 1);
+    const body = {
+      ...command(1),
+      reason: 'Concurrent withdrawal safety check',
+      preview: { snapshot: preview.snapshot, evidenceId: preview.evidenceId },
+    };
+    const path = `/api/incidents/${incident.id}/evidence/E1-v1/withdrawals`;
+    const responses = await Promise.all([
+      post(path, body),
+      post(path, { ...body, idempotencyKey: sameKey ? body.idempotencyKey : randomUUID() }),
+    ]);
+    expect(responses.map((r) => r.status).sort()).toEqual(sameKey ? [200, 200] : [200, 409]);
+    const current = await ledger.get(incident.id);
+    expect(current.corrections).toHaveLength(1);
+    expect(
+      (await ledger.events(incident.id)).filter((e) => e.type === 'evidence.withdrawn'),
+    ).toHaveLength(1);
+    const tasks = (await ledger.jobs.work(incident.id)).tasks;
+    expect(tasks).toHaveLength(1);
+    expect((await ledger.jobs.deliveries()).filter((d) => d.taskId === tasks[0].id)).toHaveLength(
+      1,
+    );
+  },
+);
+
+it('rejects an old fingerprint even if a client rewrites its sequence to the current value', async () => {
+  const incident = await create();
+  const preview = await service.previewWithdrawal(incident.id, 'E1-v1', 1);
+  const current = await service.freshSession(incident.id, 1, randomUUID());
+  const response = await post(`/api/incidents/${incident.id}/evidence/E1-v1/withdrawals`, {
+    ...command(current.eventSeq),
+    reason: 'Fingerprint must still match',
+    preview: {
+      snapshot: { ...preview.snapshot, eventSeq: current.eventSeq },
+      evidenceId: preview.evidenceId,
+    },
+  });
+  expect(response.status).toBe(409);
+  expect(await ledger.get(incident.id)).toEqual(current);
+});
+
+it.skipIf(!process.env.STORAGE_TEST_DATABASE_URL)(
+  'rejects a preview invalidated by an independent PostgreSQL client',
+  async () => {
+    const incident = await create();
+    const preview = await service.previewWithdrawal(incident.id, 'E1-v1', 1);
+    const peer = await Ledger.open(undefined, process.env.STORAGE_TEST_DATABASE_URL);
+    try {
+      await peer.withdraw(incident.id, 'E3-v1', 'Independent client correction', 1, randomUUID());
+      const response = await post(`/api/incidents/${incident.id}/evidence/E1-v1/withdrawals`, {
+        ...command(1),
+        reason: 'Obsolete preview confirmation',
+        preview: { snapshot: preview.snapshot, evidenceId: preview.evidenceId },
+      });
+      expect(response.status).toBe(409);
+      const current = await ledger.get(incident.id);
+      expect(current.corrections.map((c) => c.targetId)).toEqual(['E3-v1']);
+      expect(current.evidence.find((e) => e.id === 'E1-v1')?.status).toBe('active');
+    } finally {
+      await peer.close();
+    }
+  },
+);

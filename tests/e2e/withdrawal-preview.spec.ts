@@ -90,3 +90,138 @@ test('keeps withdrawal disabled on preview failure and permits recovery', async 
   ).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
+
+test('ignores a cancelled late preview after selecting another evidence version', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await createIncident(page);
+  let release!: () => void;
+  let ready!: () => void;
+  let finished!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const arrived = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const done = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
+  await page.route('**/E1-v1/withdrawal-preview', async (route) => {
+    const response = await route.fetch();
+    ready();
+    await gate;
+    try {
+      await route.fulfill({ response });
+    } catch {
+      /* Original browser request was cancelled. */
+    } finally {
+      finished();
+    }
+  });
+  try {
+    await page.getByRole('button', { name: 'Withdraw source', exact: true }).click();
+    await arrived;
+    const dialog = page.getByRole('dialog');
+    await expect(
+      dialog.getByRole('button', { name: 'Withdraw evidence', exact: true }),
+    ).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.locator('.evidence-card').filter({ hasText: 'Payment latency spike' }).click();
+    await page.getByRole('button', { name: 'Withdraw source', exact: true }).click();
+    await dialog.getByLabel('Reason for withdrawal').fill('Trace sample was invalid');
+    await expect(
+      dialog.getByRole('button', { name: 'Withdraw evidence', exact: true }),
+    ).toBeEnabled();
+    release();
+    await done;
+    await expect(
+      dialog.getByRole('row').filter({ hasText: 'Production database pool pressure' }),
+    ).not.toContainText('unsupported');
+    await expect(
+      dialog.getByRole('row').filter({ hasText: 'Payment-provider latency is elevated' }),
+    ).toContainText('Conclusion remains supported');
+    const sent = page.waitForRequest((r) => r.url().endsWith('/withdrawals'));
+    await dialog.getByRole('button', { name: 'Withdraw evidence', exact: true }).click();
+    expect((await sent).postDataJSON().preview.evidenceId).toBe('E3-v1');
+    await expect(dialog).not.toBeVisible();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
+test('rejects a delayed preview after the incident advances while it is loading', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const id = await createIncident(page);
+  let release!: () => void;
+  let ready!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const arrived = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  await page.route('**/withdrawal-preview', async (route) => {
+    const response = await route.fetch();
+    ready();
+    await gate;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole('button', { name: 'Withdraw source', exact: true }).click();
+    await arrived;
+    const poll = page.waitForResponse(
+      async (response) =>
+        response.url().endsWith(`/api/incidents/${id}`) &&
+        response.request().method() === 'GET' &&
+        (await response.json()).incident.eventSeq === 2,
+    );
+    expect(
+      (
+        await page.request.post(`/api/incidents/${id}/sessions`, {
+          data: { expectedEventSeq: 1, idempotencyKey: crypto.randomUUID() },
+        })
+      ).ok(),
+    ).toBe(true);
+    await poll;
+    release();
+    const dialog = page.getByRole('dialog');
+    await expect(
+      dialog.getByText('This preview is out of date. Refresh it before confirming.'),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Withdraw evidence', exact: true }),
+    ).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(
+      (await (await page.request.get(`/api/incidents/${id}`)).json()).incident.corrections,
+    ).toHaveLength(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
+test('handles malformed preview responses without crashing or enabling confirmation', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await createIncident(page);
+  await page.route('**/withdrawal-preview', (route) =>
+    route.fulfill({ status: 200, json: { readOnly: true } }),
+  );
+  await page.getByRole('button', { name: 'Withdraw source', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('alert')).toContainText('Invalid withdrawal preview response');
+  await expect(
+    dialog.getByRole('button', { name: 'Withdraw evidence', exact: true }),
+  ).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(errors).toEqual([]);
+});

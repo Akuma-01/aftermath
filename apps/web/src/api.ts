@@ -48,14 +48,21 @@ export function rememberIncident(id: string) {
   }
 }
 
-export const previewWithdrawal = (
+export const previewWithdrawal = async (
   incidentId: string,
   evidenceId: string,
   expectedEventSeq: number,
   signal?: AbortSignal,
-) =>
-  request<import('@aftermath/contracts').WithdrawalPreview>(
+) => {
+  const response = await request<unknown>(
     `/incidents/${encodeURIComponent(incidentId)}/evidence/${encodeURIComponent(evidenceId)}/withdrawal-preview`,
     { expectedEventSeq },
     signal,
   );
+
+  // Load runtime validation only when this optional comparison is requested.
+  const { withdrawalPreviewSchema } = await import('@aftermath/contracts');
+  const parsed = withdrawalPreviewSchema.safeParse(response);
+  if (!parsed.success) throw new Error('Invalid withdrawal preview response. Refresh the preview.');
+  return parsed.data;
+};
