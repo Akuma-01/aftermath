@@ -123,6 +123,8 @@ test('keeps a rejected correction open, displays conflict details and refreshes 
   await page.getByRole('button', { name: 'Withdraw evidence', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Incident changed');
+  await expect(page.getByRole('button', { name: 'Withdraw evidence', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Refresh preview', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Withdraw evidence', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('.evidence-card.selected')).not.toHaveClass(/withdrawn/);

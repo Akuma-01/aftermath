@@ -45,3 +45,17 @@ it('passes caller cancellation through to fetch', async () => {
     name: 'AbortError',
   });
 });
+
+it('requests a snapshot-specific withdrawal preview with encoded identifiers and cancellation', async () => {
+  const { previewWithdrawal } = await import('../apps/web/src/api');
+  const fetch = vi.fn().mockResolvedValue(new Response('{"readOnly":true}'));
+  vi.stubGlobal('fetch', fetch);
+  const controller = new AbortController();
+  await previewWithdrawal('incident/id', 'evidence/id', 7, controller.signal);
+  expect(fetch.mock.calls[0][0]).toBe(
+    '/api/incidents/incident%2Fid/evidence/evidence%2Fid/withdrawal-preview',
+  );
+  expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'POST', body: '{"expectedEventSeq":7}' });
+  controller.abort();
+  expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+});

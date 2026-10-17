@@ -47,3 +47,15 @@ export function rememberIncident(id: string) {
     /* Storage may be disabled. */
   }
 }
+
+export const previewWithdrawal = (
+  incidentId: string,
+  evidenceId: string,
+  expectedEventSeq: number,
+  signal?: AbortSignal,
+) =>
+  request<import('@aftermath/contracts').WithdrawalPreview>(
+    `/incidents/${encodeURIComponent(incidentId)}/evidence/${encodeURIComponent(evidenceId)}/withdrawal-preview`,
+    { expectedEventSeq },
+    signal,
+  );

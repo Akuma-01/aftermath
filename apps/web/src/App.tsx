@@ -41,6 +41,7 @@ import EvidenceMap from './EvidenceMap';
 import ServiceMap from './ServiceMap';
 import WorkHistory from './WorkHistory';
 import AgentActivity from './AgentActivity';
+import WithdrawalDialog from './WithdrawalDialog';
 
 const short = (id: string) => id.split('-')[0];
 const time = (date: string) =>
@@ -93,11 +94,9 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [withdrawal, setWithdrawal] = useState<Evidence | null>(null);
-  const [reason, setReason] = useState('');
   const [showDiff, setShowDiff] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
   const mutationLock = useRef(false);
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = snapshot?.incident.id ?? null;
   const refresh = useCallback(async () => {
@@ -153,10 +152,6 @@ export default function App() {
       setBusy(null);
     }
   }
-  useEffect(() => {
-    if (withdrawal) dialogRef.current?.showModal();
-    else dialogRef.current?.close();
-  }, [withdrawal]);
   useEffect(() => {
     if (!snapshot) return;
     const id = snapshot.incident.id;
@@ -743,11 +738,6 @@ export default function App() {
                                 disabled={!!busy || selectedEvidence.status !== 'active'}
                                 onClick={() => {
                                   setWithdrawal(selectedEvidence);
-                                  setReason(
-                                    selectedEvidence.id === 'E1-v1'
-                                      ? 'Source environment verified as staging; imported production scope is incorrect.'
-                                      : '',
-                                  );
                                 }}
                               >
                                 <Unplug size={14} />
@@ -1244,86 +1234,27 @@ export default function App() {
           )}
         </main>
       </div>
-      <dialog
-        ref={dialogRef}
-        className="withdraw-dialog"
-        onCancel={(event) => {
-          if (busy) event.preventDefault();
-          else setWithdrawal(null);
-        }}
-        onClose={() => setWithdrawal(null)}
-      >
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (withdrawal)
-              void act('Withdrawing source', `/evidence/${withdrawal.id}/withdrawals`, {
+      {withdrawal && snapshot && (
+        <WithdrawalDialog
+          key={`${snapshot.incident.id}:${withdrawal.id}`}
+          incident={snapshot.incident}
+          evidence={withdrawal}
+          busy={!!busy}
+          error={error}
+          onClose={() => setWithdrawal(null)}
+          onConfirm={(reason, preview) =>
+            act(
+              'Withdrawing source',
+              `/evidence/${encodeURIComponent(withdrawal.id)}/withdrawals`,
+              {
                 reason,
-              }).then((ok) => {
-                if (ok) setWithdrawal(null);
-              });
-          }}
-        >
-          <div className="dialog-icon">
-            <Unplug size={24} />
-          </div>
-          <div className="dialog-heading">
-            <h2>Withdraw this source</h2>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Close dialog"
-              disabled={!!busy}
-              onClick={() => setWithdrawal(null)}
-            >
-              <X size={20} />
-            </button>
-          </div>
-          <p>
-            Remove <strong>{withdrawal?.title}</strong> from accepted support. Its original content
-            and your correction will stay in the investigation history.
-          </p>
-          <label htmlFor="withdrawal-reason">Reason for withdrawal</label>
-          <textarea
-            autoFocus
-            id="withdrawal-reason"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            minLength={5}
-            maxLength={1000}
-            required
-            rows={4}
-            placeholder="Describe what changed or why this evidence is no longer valid…"
-          />
-          <div className="dialog-note">
-            <TriangleAlert size={16} />
-            The current report will immediately be marked for review.
-          </div>
-          {error && (
-            <p className="dialog-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="button secondary"
-              disabled={!!busy}
-              onClick={() => setWithdrawal(null)}
-            >
-              Cancel
-            </button>
-            <button
-              className="button danger"
-              type="submit"
-              disabled={!!busy || reason.trim().length < 5}
-            >
-              {busy ? <LoaderCircle size={15} className="spin" /> : <Unplug size={15} />}
-              {busy ? 'Withdrawing…' : 'Withdraw evidence'}
-            </button>
-          </div>
-        </form>
-      </dialog>
+                preview,
+                expectedEventSeq: preview.snapshot.eventSeq,
+              },
+            )
+          }
+        />
+      )}
       {busy && (
         <div className="busy-indicator" role="status">
           <LoaderCircle size={15} className="spin" />
