@@ -40,6 +40,41 @@ For additional demo coverage, capture service paths, surviving alternative suppo
 
 Run `npm run demo:withdrawal-preview` for a fresh temporary local stack, assertions and automatic cleanup. This command uses no paid models and does not touch your `.data` workspace. The [feature guide](withdrawal-preview.md) includes a manual walkthrough, current API format and stale-preview behavior.
 
+## Live Gemini recording
+
+**Current demo status:** the developer-reported live attempt recorded three investigator calls timing out at 45 seconds each, with no successful Gemini report. The configured model label was `gemini-3.8-flash`; this label does not establish model availability. The cause was not diagnosed, and token usage was not reported. For the submission, use a fresh incident without activating AI and demonstrate the deterministic workflow. The instructions below are for a future live retry, not evidence of a completed successful run.
+
+The same withdrawal workflow supports a live investigator and reporter. The incident observations remain synthetic fixture data; Gemini supplies model-generated interpretation grounded in those observations and graph tools.
+
+### Configure locally
+
+In the root `.env` (create it from `.env.example` only if it does not already exist), set:
+
+```dotenv
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-server-side-key
+LLM_MODEL=your-account-accessible-gemini-model-id
+AGENT_MAX_CALLS=12
+AGENT_MAX_OUTPUT_TOKENS=4096
+AGENT_MAX_CONTEXT_BYTES=64000
+AGENT_CALL_TIMEOUT_MS=45000
+```
+
+Replace both placeholders. Choose a model available to your account that supports function calling; the repository default is not a guarantee of account access. Keep the key in the ignored `.env`, never in a screenshot, browser configuration or commit. Restart `npm run dev` after changing configuration. Configuration alone does not start a model request.
+
+### Record one incident from investigation to repair
+
+1. Create a fresh checkout investigation so E1 is still active. Open **Activity**, find **Investigator & reporter**, and check that the configured provider is Gemini.
+2. When ready to authorize live requests, click **Run AI investigation**. This queues live work and activates live repair for subsequent corrections on this incident. Calls may incur charges; the budget applies per task, not to the entire recording.
+3. Wait for a current report. Show successful model-call entries in Activity, their provider/model and graph-tool activity. Then show the report's **Reporter** attribution. A configured provider label alone does not establish that a call succeeded.
+4. Return to the evidence workspace. Select **Database pool exhaustion**, click **Withdraw source**, and show the impact comparison. This preview uses FalkorDB without invoking Gemini or committing a correction.
+5. Enter a reason such as “Source environment verified as staging; imported production scope is incorrect.” Confirm **Withdraw evidence**. This creates a durable correction and queues another live investigator/reporter repair.
+6. Wait for the report to become current again. Show the new model-call activity and the report revision diff: database-dependent findings lose support while independently supported findings survive. Report numbers may differ from the deterministic screenshots because the initial AI investigation adds a revision; model wording can vary.
+
+Keep the evidence graph, successful Gemini activity and repaired report from this same incident in the recording. Describe it as **live Gemini investigation and repair over a synthetic incident fixture**. A model can choose additional registered synthetic diagnostics; those observations are not production measurements.
+
+If the run fails, inspect Activity before retrying. A 429 indicates quota/rate-limit trouble; authentication or model errors require configuration fixes. A failed or rejected proposal is not a successful model-written report. Do not repeatedly click retry while recording: each new attempt may make further requests. The deterministic `demo:withdrawal-preview` script remains a separate reproducible demonstration and does not verify live Gemini quality.
+
 ## API example
 
 Create an incident:
