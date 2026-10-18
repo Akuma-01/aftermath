@@ -1,6 +1,20 @@
 # Aftermath
 
-Aftermath is an incident investigation platform built around FalkorDB graph reasoning, PostgreSQL/PGlite persistence, and bounded AI investigator and reporter workflows. The application traces findings to versioned evidence and repairs reports when that evidence changes.
+**When evidence changes, incident reports should change with it.**
+
+Aftermath traces incident findings to their evidence, previews the impact of withdrawing a source, and repairs affected conclusions while preserving independent support. FalkorDB executes Cypher to evaluate support; optional AI investigators and reporters work through bounded, audited tools.
+
+[![Withdrawal impact preview showing changed and unchanged findings in the commerce incident](docs/images/withdrawal-preview.png)](docs/images/withdrawal-preview.png)
+
+_Before confirming a withdrawal: the commerce preview identifies 7 changed findings and 11 unchanged findings, with expandable support-group explanations._
+
+## See the workflow
+
+1. **Trace a finding.** Explore evidence, AND premises and alternative support in the [evidence graph](docs/demo.md#screenshots).
+2. **Preview a withdrawal.** Compare claim status, provenance, citations and related services before changing the incident.
+3. **Repair the report.** Confirm the correction, wait for background repair, then compare [preserved and revised conclusions](docs/images/repaired-report.png).
+
+Run locally with `npm ci` followed by `npm run dev`, then open http://127.0.0.1:5173. Leave provider variables unset for the deterministic fixture demo. See the [walkthrough and screenshots](docs/demo.md) or run `npm run demo:withdrawal-preview` for an isolated, automated lifecycle demonstration. Local setup and service requirements are detailed below.
 
 ## Current scope
 

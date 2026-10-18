@@ -12,7 +12,29 @@ Run `npm ci`, then `npm run dev`, and open http://127.0.0.1:5173. Leave provider
 6. Hold a report, apply another correction, then resume held work: obsolete output must be rejected. Inspect correction memory in a fresh session.
 7. Run `npm run benchmark` and open Benchmarks to inspect actual saved local measurements. The dashboard does not invoke models.
 
-Capture the workspace, support explanation, service map and report comparison for a demo. No screenshots or manual browser walkthrough are claimed by this document; automated Chromium coverage is recorded in the verification report. AI activation is optional and requires separately authorized paid-provider testing.
+## Screenshots
+
+These user-captured screenshots show the application with fixture incidents. The preview uses the larger commerce scenario; the evidence graph and repaired report use checkout. They illustrate the workflow across those scenarios, rather than a single continuous run. They do not demonstrate a live Gemini invocation; live-provider testing requires separate configuration and authorization.
+
+### Evidence graph: trace the premises
+
+[![Checkout investigation workspace with evidence graph and selected C3 support explanation](images/evidence-graph-preview.png)](images/evidence-graph-preview.png)
+
+The checkout workspace shows evidence, findings and report version 1 together. The selected C3 finding requires both C1 and C2; the inspector exposes its AND premises and source origins. Click the image to inspect the graph at full resolution.
+
+### Withdrawal preview: compare before confirming
+
+[![Commerce withdrawal preview with 7 changed and 11 unchanged findings](images/withdrawal-preview.png)](images/withdrawal-preview.png)
+
+Withdrawing **Database pool exhaustion** in the commerce scenario previews 7 changed findings, 11 unchanged findings and no contested findings after withdrawal. Expanded support groups explain which premises stop supporting a conclusion. A changed finding can reflect changes in provenance or group validity as well as status.
+
+### Repaired report: compare revisions
+
+[![Checkout report version 2 revision diff showing a preserved timeout finding and revised database conclusions](images/repaired-report.png)](images/repaired-report.png)
+
+After the checkout correction and repair, report version 2 preserves the checkout-timeout observation and revises the database-pressure findings. The revision diff shows previous text alongside updated conclusions; C2 is now unsupported. This focused crop captures the report comparison without requiring the entire workspace to remain visible.
+
+For additional demo coverage, capture service paths, surviving alternative support and the stale-preview warning. Automated browser verification is documented separately in the [release verification report](release-verification.md).
 
 ## Withdrawal preview demo
 

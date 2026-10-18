@@ -67,7 +67,7 @@ PASS lines are printed only after their assertions execute. Success also require
 5. Reopen E1's dialog. In another tab viewing the same incident, open **Correction memory** and **Open fresh session**. Polling marks the original preview out of date and disables confirmation. Click **Refresh preview** to calculate against the new snapshot.
 6. Enter a reason and click **Withdraw evidence**. Follow repair progress, then compare report versions. An actual correction is created only at this confirmation step.
 
-For a presentation, capture the E1 before/after table, E3 surviving alternative groups, stale-preview message and repaired report history. The same dialog supports narrow screens. This is demo guidance, not a claim that screenshots or a separate human walkthrough were performed.
+The [screenshot walkthrough](demo.md#screenshots) includes the commerce withdrawal comparison, the checkout evidence graph and the checkout repaired report. These captures illustrate selected steps, not every scenario above. For additional presentation coverage, capture E3 surviving alternative groups and the stale-preview warning. The same dialog supports narrow screens.
 
 ## API usage
 
